@@ -40,6 +40,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $errorMessage = "Error adding inventory: " . $e->getMessage();
         }
     }
+
+if ($_POST['action'] === 'edit_inventory') {
+        try {
+            // Prepare and execute the update
+            $stmt = $pdo->prepare("
+                UPDATE inventory
+                SET product_id = ?, stock_in = ?, stock_out = ?, expiry_date = ?,
+                    stock_available = ?, low_stock_threshold = ?
+                WHERE inventory_id = ?
+            ");
+
+            // Calculate stock available
+            $stockAvailable = $_POST['stock_in'] - $_POST['stock_out'];
+
+            // Execute with user inputs
+            $stmt->execute([
+                $_POST['product_id'],
+                $_POST['stock_in'],
+                $_POST['stock_out'],
+                $_POST['expiry_date'],
+                $stockAvailable,
+                $_POST['low_stock_threshold'],
+                $_POST['inventory_id']
+            ]);
+
+            // Success message
+            $successMessage = "Inventory updated successfully!";
+        } catch(PDOException $e) {
+            $errorMessage = "Error updating inventory: " . $e->getMessage();
+        }
+    }
+
+
 }
 
 // Get inventory with product names
@@ -203,12 +236,75 @@ ob_start();
         
         openModal('Add New Inventory', modalContent);
     }
-    
-    // Show Edit Inventory Modal
+// Show Edit Inventory Modal
     function showEditInventoryModal(inventoryId) {
-        // In a real application, you would fetch the inventory data via AJAX
-        alert('Edit inventory ' + inventoryId + ' (functionality to be implemented)');
+        // Fetch inventory data from the PHP variable
+        const inventory = <?php echo json_encode($inventory); ?>;
+        const item = inventory.find(i => i.inventory_id == inventoryId);
+
+        if (!item) {
+            alert('Inventory item not found.');
+            return;
+        }
+
+        // Dynamically populate the modal fields
+        const modalContent = `
+            <form action="inventory.php" method="POST" class="space-y-4">
+                <input type="hidden" name="action" value="edit_inventory">
+                <input type="hidden" name="inventory_id" value="${item.inventory_id}">
+
+                <div class="form-group">
+                    <label for="edit_product_id" class="form-label">Product</label>
+                    <select id="edit_product_id" name="product_id" class="form-select" required>
+                        <option value="">Select Product</option>
+                        <?php foreach ($products as $product): ?>
+                            <option value="<?php echo $product['product_id']; ?>" ${
+                                item.product_id == <?php echo $product['product_id']; ?> ? "selected" : ""
+                            }>
+                                <?php echo $product['product_name']; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="form-group">
+                        <label for="edit_stock_in" class="form-label">Stock In</label>
+                        <input type="number" id="edit_stock_in" name="stock_in" class="form-input" min="0" value="${item.stock_in}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit_stock_out" class="form-label">Stock Out</label>
+                        <input type="number" id="edit_stock_out" name="stock_out" class="form-input" min="0" value="${item.stock_out}" required>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="form-group">
+                        <label for="edit_expiry_date" class="form-label">Expiry Date</label>
+                        <input type="date" id="edit_expiry_date" name="expiry_date" class="form-input" value="${item.expiry_date}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="edit_low_stock_threshold" class="form-label">Low Stock Threshold</label>
+                        <input type="number" id="edit_low_stock_threshold" name="low_stock_threshold" class="form-input" min="1" value="${item.low_stock_threshold}" required>
+                    </div>
+                </div>
+
+                <div class="flex justify-end space-x-2">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        `;
+
+        // Open the modal with the dynamically generated content
+        openModal('Edit Inventory', modalContent);
     }
+
+function hideEditInventoryModal() {
+    document.getElementById('editInventoryModal').classList.add('hidden');
+}
     
     // Confirm Delete Inventory
     function confirmDeleteInventory(inventoryId, productName) {

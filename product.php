@@ -34,6 +34,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $errorMessage = "Error adding product: " . $e->getMessage();
         }
     }
+
+    if ($_POST['action'] === 'edit_product') {
+    try {
+        // Prepare the SQL statement for updating the product
+        $stmt = $pdo->prepare("
+            UPDATE product
+            SET product_name = ?, category_id = ?, description = ?, unit_price = ?, base_price = ?, supplier_id = ?
+            WHERE product_id = ?
+        ");
+
+        // Execute with the form data
+        $stmt->execute([
+            $_POST['product_name'],
+            $_POST['category_id'],
+            $_POST['description'],
+            $_POST['unit_price'],
+            $_POST['base_price'],
+            $_POST['supplier_id'],
+            $_POST['product_id']
+        ]);
+
+        // Log the action
+        logAction(getCurrentUserId(), 'Edited product: ' . $_POST['product_name']);
+
+        // Set success message
+        $successMessage = "Product updated successfully!";
+    } catch (PDOException $e) {
+        $errorMessage = "Error updating product: " . $e->getMessage();
+    }
+}
 }
 
 // Get products with category and supplier names
@@ -198,10 +228,82 @@ ob_start();
     }
     
     // Show Edit Product Modal
-    function showEditProductModal(productId) {
-        // In a real application, you would fetch the product data via AJAX
-        alert('Edit product ' + productId + ' (functionality to be implemented)');
+function showEditProductModal(productId) {
+    // Fetch the products array from PHP data
+    const products = <?php echo json_encode($products); ?>;
+    const categories = <?php echo json_encode($categories); ?>;
+    const suppliers = <?php echo json_encode($suppliers); ?>;
+
+    // Find the specific product by its ID
+    const product = products.find(p => p.product_id == productId);
+
+    if (!product) {
+        alert("Product not found.");
+        return;
     }
+
+    // Build the modal content dynamically with prefilled values for editing
+    const modalContent = `
+        <form action="product.php" method="POST" class="space-y-4">
+            <input type="hidden" name="action" value="edit_product">
+            <input type="hidden" name="product_id" value="${product.product_id}">
+
+            <div class="form-group">
+                <label for="edit_product_name" class="form-label">Product Name</label>
+                <input type="text" id="edit_product_name" name="product_name" class="form-input" value="${product.product_name}" required>
+            </div>
+
+            <div class="form-group">
+                <label for="edit_category_id" class="form-label">Category</label>
+                <select id="edit_category_id" name="category_id" class="form-select" required>
+                    <option value="">Select Category</option>
+                    ${categories.map(category => `
+                        <option value="${category.product_id}" ${product.category_id == category.product_id ? "selected" : ""}>
+                            ${category.category_name}
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label for="edit_description" class="form-label">Description</label>
+                <textarea id="edit_description" name="description" class="form-input" rows="3">${product.description || ''}</textarea>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div class="form-group">
+                    <label for="edit_unit_price" class="form-label">Unit Price (₱)</label>
+                    <input type="number" id="edit_unit_price" name="unit_price" class="form-input" step="0.01" min="0" value="${product.unit_price}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit_base_price" class="form-label">Base Price (₱)</label>
+                    <input type="number" id="edit_base_price" name="base_price" class="form-input" step="0.01" min="0" value="${product.base_price}" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="edit_supplier_id" class="form-label">Supplier</label>
+                <select id="edit_supplier_id" name="supplier_id" class="form-select" required>
+                    <option value="">Select Supplier</option>
+                    ${suppliers.map(supplier => `
+                        <option value="${supplier.supplier_id}" ${product.supplier_id == supplier.supplier_id ? "selected" : ""}>
+                            ${supplier.supplier_name}
+                        </option>
+                    `).join('')}
+                </select>
+            </div>
+
+            <div class="flex justify-end space-x-2">
+                <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button type="submit" class="btn-primary">Save Changes</button>
+            </div>
+        </form>
+    `;
+
+    // Open the modal with the dynamically generated content
+    openModal('Edit Product', modalContent);
+}
     
     // Confirm Delete Product
     function confirmDeleteProduct(productId, productName) {
