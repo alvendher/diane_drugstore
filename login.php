@@ -10,7 +10,7 @@ if (isset($_SESSION['user_id'])) {
 // Handle login form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'];
-    $password = $_POST['password']; // Password won't be verified in this test version
+    $password = $_POST['password'];
     
     try {
         // Get user from database
@@ -18,8 +18,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$username]);
         $user = $stmt->fetch();
         
-        // TEMPORARY: Bypass password verification for testing
-        if ($user) {
+        // Verify user exists and password matches exactly
+        if ($user && $password === $user['password_hash']) {
             // Set session variables
             $_SESSION['user_id'] = $user['user_id'];
             $_SESSION['username'] = $user['username'];
@@ -32,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             header('Location: home.php');
             exit;
         } else {
-            $errorMessage = "Invalid username. User not found.";
+            $errorMessage = "Invalid username or password. Please try again.";
         }
     } catch(PDOException $e) {
         $errorMessage = "Database error: " . $e->getMessage();
@@ -46,139 +46,200 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Diane's Pharmacy</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Poppins', sans-serif;
+        }
+
         body {
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             margin: 0;
-            font-family: 'Segoe UI', sans-serif;
-            background-color: #f5f5f5;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
         }
+
         .container {
             display: flex;
             width: 90vw;
-            max-width: 1920px;
-            height: 90vh;
-            max-height: 1080px;
+            max-width: 1200px;
+            height: 600px;
             background-color: #fff;
-            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.1);
             border-radius: 20px;
             overflow: hidden;
         }
+
         .login-form {
             flex: 1;
-            padding: clamp(20px, 5vw, 80px);
+            padding: 60px;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start; 
-            max-width: min(400px, 90%);
+            justify-content: center;
+            background-color: #fff;
+            position: relative;
+            z-index: 1;
         }
+
         .logo-section {
-            flex: 1;
-            background: linear-gradient(180deg, #186AB1 -100%, #3A1853 100%);
+            flex: 1.2;
+            background: linear-gradient(135deg, #186AB1 0%, #5B287B 100%);
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
-            padding: 20px;
-        }
-        .logo-section img {
-            max-width: 60%;
-            height: auto;
-            object-fit: contain;
-            display: block;
-        }
-        h1 {
-            margin-bottom: clamp(50px, 12vh, 80px); 
-            font-size: clamp(24px, 3vw, 32px);
-            color: #333;
-            text-align: center;
-        }
-        .form-group {
-            margin-bottom: clamp(20px, 3vh, 30px);
+            padding: 40px;
             position: relative;
+            overflow: hidden;
+        }
+
+        .logo-section::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><path fill="%23FFFFFF20" d="M37.5,186c-12.1-10.5-11.8-32.3-7.2-46.7c4.8-15,13.1-17.8,30.1-36.7C91,68.8,83.5,56.7,103.4,45 c22.2-13.1,51.1-9.5,69.6-1.6c18.1,7.8,15.7,15.3,43.3,33.2c28.8,18.8,37.2,14.3,46.7,27.9c15.6,22.3,6.4,53.3,4.4,60.2 c-3.3,11.2-7.1,23.9-18.5,32c-16.3,11.5-29.5,0.7-48.6,11c-16.2,8.7-12.6,19.7-28.2,33.2c-22.7,19.7-63.8,25.7-79.9,9.7 c-15.2-15.1,0.3-41.7-16.6-54.9C63,186,49.7,196.7,37.5,186z"/></svg>') no-repeat center center;
+            background-size: 140%;
+            opacity: 0.1;
+            animation: pulse 15s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .logo-section img {
+            max-width: 200px;
+            height: auto;
+            margin-bottom: 30px;
+        }
+
+        .logo-section h2 {
+            color: #fff;
+            font-size: 24px;
+            text-align: center;
+            font-weight: 700;
+            margin-top: 20px;
+        }
+
+        h1 {
+            font-size: 32px;
+            color: #333;
+            margin-bottom: 40px;
+            font-weight: 600;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            position: relative;
+        }
+
+        input[type="text"], 
+        input[type="password"] {
             width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #eee;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            background: #f8f9fa;
         }
-        input[type="text"], input[type="password"] {
-            width: 100%;
-            padding: clamp(8px, 1.5vh, 12px) 0;
-            border: none;
-            border-bottom: 1px solid #ddd;
-            outline: none;
-            font-size: clamp(14px, 1.5vw, 16px);
-            transition: border-color 0.3s;
+
+        input[type="text"]:focus, 
+        input[type="password"]:focus {
+            border-color: #5B287B;
+            background: #fff;
+            box-shadow: 0 0 0 3px rgba(91, 40, 123, 0.1);
         }
-        input[type="text"]:focus, input[type="password"]:focus {
-            border-bottom: 2px solid #5B287B;
-        }
+
         .forgot-password {
             text-align: right;
-            font-size: clamp(12px, 1.2vw, 14px);
-            margin-top: 8px;
-            font-weight: bold;
+            margin-top: 10px;
         }
+
         .forgot-password a {
             color: #5B287B;
             text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
             transition: color 0.3s;
         }
+
         .forgot-password a:hover {
             color: #186AB1;
+            text-decoration: underline;
         }
+
         .login-button {
-            background-color: #5B287B;
+            background: linear-gradient(135deg, #5B287B 0%, #186AB1 100%);
             color: white;
-            padding: clamp(10px, 2vh, 15px) clamp(20px, 4vw, 40px);
+            padding: 14px 30px;
             border: none;
-            border-radius: 25px;
+            border-radius: 8px;
             cursor: pointer;
-            margin: clamp(40px, 6vh, 60px) auto clamp(20px, 3vh, 30px); 
-            font-size: clamp(14px, 1.5vw, 16px);
-            transition: background-color 0.3s;
-            display: flex;
-            align-items: center;
-            width: fit-content;
+            font-size: 16px;
+            font-weight: 500;
+            width: 100%;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+            position: relative;
+            overflow: hidden;
         }
+
         .login-button:hover {
-            background-color: #186AB1;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(91, 40, 123, 0.3);
         }
-        .login-button::after {
-            content: "→";
-            margin-left: 8px;
+
+        .login-button:active {
+            transform: translateY(0);
         }
+
         .error-message {
-            background-color: #ffebee;
-            color: #c62828;
-            padding: 10px;
-            border-radius: 5px;
+            background-color: #fff3f3;
+            color: #dc3545;
+            padding: 15px;
+            border-radius: 8px;
             margin-bottom: 20px;
             font-size: 14px;
+            border-left: 4px solid #dc3545;
+            display: flex;
+            align-items: center;
         }
-        .test-credentials {
-            margin-top: 20px;
-            padding: 15px;
-            background-color: #fff8e1;
-            border-radius: 5px;
-            font-size: 14px;
+
+        .error-message::before {
+            content: '⚠️';
+            margin-right: 10px;
         }
-        .test-credentials p {
-            margin: 5px 0;
-            color: #5B287B;
-        }
+
         @media screen and (max-width: 768px) {
             .container {
-                flex-direction: column-reverse;
+                flex-direction: column;
                 height: auto;
-                min-height: 100vh;
-                border-radius: 0;
+                margin: 20px;
             }
+
             .logo-section {
                 padding: 40px 20px;
+                min-height: 200px;
             }
+
             .login-form {
-                padding: 40px 20px;
-                max-width: 100%;
+                padding: 30px;
+            }
+
+            h1 {
+                font-size: 24px;
+                margin-bottom: 30px;
             }
         }
     </style>
@@ -186,7 +247,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="container">
         <div class="login-form">
-            <h1>Diane's Pharmacy</h1>
+            <h1>Welcome Back!</h1>
             
             <?php if (isset($errorMessage)): ?>
                 <div class="error-message">
@@ -196,27 +257,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <form action="" method="post">
                 <div class="form-group">
-                    <input type="text" name="username" placeholder="Username" required>
+                    <input type="text" name="username" placeholder="Enter your username" required>
                 </div>
                 <div class="form-group">
-                    <input type="password" name="password" placeholder="Password" required>
+                    <input type="password" name="password" placeholder="Enter your password" required>
                     <div class="forgot-password">
                         <a href="forgot_password.php">Forgot Password?</a>
                     </div>
                 </div>
-                <button type="submit" class="login-button">Login</button>
+                <button type="submit" class="login-button">Sign In</button>
             </form>
-            
-            <!-- TEMPORARY: Testing credentials notice -->
-            <div class="test-credentials">
-                <p><strong>Testing Credentials:</strong></p>
-                <p>Admin: ajfrancisco (any password)</p>
-                <p>Pharmacist: jmarcos (any password)</p>
-                <p>Cashier: lsantos (any password)</p>
-            </div>
         </div>
         <div class="logo-section">
             <img src="img/logo.png" alt="Diane's Pharmacy Logo">
+            <h2>Diane's Pharmacy</h2>
         </div>
     </div>
 </body>

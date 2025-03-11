@@ -1,5 +1,6 @@
 <?php
 require_once 'config.php';
+checkLogin();
 
 // Page specific variables
 $pageTitle = "Customers";
