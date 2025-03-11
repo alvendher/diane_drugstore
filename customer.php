@@ -1,4 +1,6 @@
+
 <?php
+global $pdo;
 require_once 'config.php';
 
 // Page specific variables
@@ -9,30 +11,95 @@ $pageIcon = "fas fa-users";
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'add_customer') {
         try {
+            // Get the next customer_id by finding the current MAX(customer_id) and incrementing
+        $stmt = $pdo->query("SELECT MAX(customer_id) AS max_id FROM customer");
+        $lastCustomerId = $stmt->fetchColumn();
+        $nextCustomerId = $lastCustomerId ? $lastCustomerId + 1 : 1;  // Default to 1 if no customers exist
+
             // Prepare the SQL statement
             $stmt = $pdo->prepare("
-                INSERT INTO customer (first_name, last_name, contact_number) 
-                VALUES (?, ?, ?)
+                INSERT INTO customer (customer_id,first_name, last_name, contact_number)
+                VALUES (?,?, ?, ?)
             ");
-            
+
             // Execute with the form data
             $stmt->execute([
+                $nextCustomerId,
                 $_POST['first_name'],
                 $_POST['last_name'],
                 $_POST['contact_number']
             ]);
-            
+
             // Log the action
             logAction(getCurrentUserId(), 'Added new customer: ' . $_POST['first_name'] . ' ' . $_POST['last_name']);
-            
+
             // Set success message
             $successMessage = "Customer added successfully!";
-        } catch(PDOException $e) {
+        } catch (PDOException $e) {
             $errorMessage = "Error adding customer: " . $e->getMessage();
         }
     }
-}
 
+    if ($_POST['action'] === 'edit_customer') {
+        try {
+            // Prepare the SQL statement for updating the customer
+            $stmt = $pdo->prepare("
+            UPDATE customer
+            SET first_name = ?, last_name = ?, contact_number = ?
+            WHERE customer_id = ?
+        ");
+
+            // Execute with the form data
+            $stmt->execute([
+                $_POST['first_name'],
+                $_POST['last_name'],
+                $_POST['contact_number'],
+                $_POST['customer_id']
+            ]);
+
+            // Log the action
+            logAction(getCurrentUserId(), 'Edited customer: ' . $_POST['first_name'] . ' ' . $_POST['last_name']);
+
+            // Set success message
+            $successMessage = "Customer updated successfully!";
+        } catch (PDOException $e) {
+            $errorMessage = "Error updating customer: " . $e->getMessage();
+        }
+    }
+if ($_POST['action'] === 'delete_customer' && isset($_POST['customer_id'])) {
+    try {
+        // Prepare the SQL statement for deleting the customer
+        $stmt = $pdo->prepare("
+            DELETE FROM customer
+            WHERE customer_id = ?
+        ");
+
+        // Execute the deletion
+        $stmt->execute([$_POST['customer_id']]);
+
+        // Log the action
+        logAction(getCurrentUserId(), 'Deleted customer with ID: ' . $_POST['customer_id']);
+
+        // Set success message
+        $successMessage = "Customer deleted successfully!";
+    } catch (PDOException $e) {
+        $errorMessage = "Error deleting customer: " . $e->getMessage();
+    }
+}
+}
+try {
+    // Get the highest customer_id
+    $lastCustomerId = $pdo->query("
+        SELECT MAX(customer_id) AS max_id FROM customer
+    ")->fetchColumn();
+
+    // If there are no customers, set it to 0
+    $lastCustomerId = $lastCustomerId ? $lastCustomerId : 0;
+
+} catch(PDOException $e) {
+    $errorMessage = "Database error: " . $e->getMessage();
+    $lastCustomerId = 0; // Default fallback if there's a database error
+}
 // Get customers
 try {
     $customers = $pdo->query("
@@ -120,52 +187,119 @@ ob_start();
 </div>
 
 <script>
+    // Make the next customer ID available in JavaScript
+
+    const nextCustomerId = <?php echo $lastCustomerId + 1; ?>;
+
     // Show Add Customer Modal
     function showAddCustomerModal() {
+
         const modalContent = `
             <form action="customer.php" method="post" class="space-y-4">
                 <input type="hidden" name="action" value="add_customer">
-                
+
+                <div class="form-group">
+                    <label for="customer_id" class="form-label">Customer ID</label>
+                    <input type="text" id="customer_id" class="form-input bg-gray-100" value="${nextCustomerId}" readonly>
+                </div>
+
                 <div class="grid grid-cols-2 gap-4">
                     <div class="form-group">
                         <label for="first_name" class="form-label">First Name</label>
                         <input type="text" id="first_name" name="first_name" class="form-input" required>
                     </div>
-                    
+
                     <div class="form-group">
                         <label for="last_name" class="form-label">Last Name</label>
                         <input type="text" id="last_name" name="last_name" class="form-input" required>
                     </div>
                 </div>
-                
+
                 <div class="form-group">
                     <label for="contact_number" class="form-label">Contact Number</label>
                     <input type="text" id="contact_number" name="contact_number" class="form-input" placeholder="+63-XXX-XXX-XXXX" required>
                 </div>
-                
+
                 <div class="flex justify-end space-x-2">
                     <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
                     <button type="submit" class="btn-primary">Add Customer</button>
                 </div>
             </form>
         `;
-        
+
         openModal('Add New Customer', modalContent);
     }
-    
+
     // Show Edit Customer Modal
     function showEditCustomerModal(customerId) {
-        // In a real application, you would fetch the customer data via AJAX
-        alert('Edit customer ' + customerId + ' (functionality to be implemented)');
+        // Ensure the `customers` list is encoded properly in the PHP output
+        const customers = <?php echo json_encode($customers); ?>;
+
+        // Find the specific customer by ID
+        const customer = customers.find(c => c.customer_id == customerId);
+
+        if (!customer) {
+            alert("Customer not found.");
+            return;
+        }
+       const modalContent = `
+            <form action="customer.php" method="post" class="space-y-4">
+                <input type="hidden" name="action" value="edit_customer">
+                <input type="hidden" name="customer_id" value="${customer.customer_id}">
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="form-group">
+                        <label for="first_name" class="form-label">First Name</label>
+                        <input type="text" id="first_name" name="first_name" class="form-input" value="${customer.first_name}" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="last_name" class="form-label">Last Name</label>
+                        <input type="text" id="last_name" name="last_name" class="form-input" value="${customer.last_name}" required>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="contact_number" class="form-label">Contact Number</label>
+                    <input type="text" id="contact_number" name="contact_number" class="form-input" placeholder="+63-XXX-XXX-XXXX" value="${customer.contact_number}" required>
+                </div>
+
+                <div class="flex justify-end space-x-2">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        `;
+
+        openModal('Edit Customer', modalContent);
     }
+
     
     // Confirm Delete Customer
     function confirmDeleteCustomer(customerId, customerName) {
-        if (confirm('Are you sure you want to delete ' + customerName + '?')) {
-            // In a real application, you would submit a form or make an AJAX request
-            alert('Delete customer ' + customerId + ' (functionality to be implemented)');
-        }
+    if (confirm('Are you sure you want to delete ' + customerName + '?')) {
+        // Create a form dynamically to submit the delete request
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = ''; // Same page
+
+        const actionInput = document.createElement('input');
+        actionInput.type = 'hidden';
+        actionInput.name = 'action';
+        actionInput.value = 'delete_customer';
+
+        const customerIdInput = document.createElement('input');
+        customerIdInput.type = 'hidden';
+        customerIdInput.name = 'customer_id';
+        customerIdInput.value = customerId;
+
+        form.appendChild(actionInput);
+        form.appendChild(customerIdInput);
+
+        document.body.appendChild(form);
+        form.submit();
     }
+}
     
     // Search functionality
     document.addEventListener('DOMContentLoaded', function() {
@@ -299,4 +433,4 @@ $content = ob_get_clean();
 
 // Include the layout
 include 'layout.php';
-?> 
+?>  */
