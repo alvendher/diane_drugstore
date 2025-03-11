@@ -11,8 +11,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             // Prepare the SQL statement
             $stmt = $pdo->prepare("
-                INSERT INTO inventory (product_id, stock_in, stock_out, expiry_date, stock_available, low_stock_threshold) 
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO inventory (inventory_id, product_id, stock_in, stock_out, expiry_date, stock_available, low_stock_threshold)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             
             // Calculate stock available
@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             // Execute with the form data
             $stmt->execute([
+                $_POST['inventory_id'],
                 $_POST['product_id'],
                 $_POST['stock_in'],
                 $_POST['stock_out'],
@@ -71,8 +72,39 @@ if ($_POST['action'] === 'edit_inventory') {
             $errorMessage = "Error updating inventory: " . $e->getMessage();
         }
     }
+if ($_POST['action'] === 'delete_inventory' && isset($_POST['inventory_id'])) {
+    try {
+        // Prepare the SQL statement for deleting the inventory
+        $stmt = $pdo->prepare("
+            DELETE FROM inventory
+            WHERE inventory_id = ?
+        ");
 
+        // Execute the deletion
+        $stmt->execute([$_POST['inventory_id']]);
 
+        // Log the action
+        logAction(getCurrentUserId(), 'Deleted inventory with ID: ' . $_POST['inventory_id']);
+
+        // Set success message
+        $successMessage = "Inventory deleted successfully!";
+    } catch (PDOException $e) {
+        $errorMessage = "Error deleting inventory: " . $e->getMessage();
+    }
+}
+
+}
+try {
+    // Get the highest inventory_id
+    $lastInventoryId = $pdo->query("
+        SELECT MAX(inventory_id) AS max_id FROM inventory
+    ")->fetchColumn();
+
+    // Calculate the next inventory ID
+    $nextInventoryId = $lastInventoryId ? $lastInventoryId + 1 : 1; // If no data exists, start from 1
+} catch (PDOException $e) {
+    $errorMessage = "Database error: " . $e->getMessage();
+    $nextInventoryId = 1; // Default to 1 in case of error
 }
 
 // Get inventory with product names
@@ -187,12 +219,20 @@ ob_start();
 </div>
 
 <script>
+    const nextInventoryId = <?php echo $nextInventoryId; ?>;
+
     // Show Add Inventory Modal
     function showAddInventoryModal() {
         const modalContent = `
             <form action="inventory.php" method="post" class="space-y-4">
                 <input type="hidden" name="action" value="add_inventory">
-                
+
+                <!-- Inventory ID (Read-Only) -->
+                <div class="form-group">
+                    <label for="inventory_id" class="form-label">Inventory ID</label>
+                    <input type="text" id="inventory_id" name="inventory_id" value="${nextInventoryId}" class="form-input bg-gray-100" readonly>
+                </div>
+
                 <div class="form-group">
                     <label for="product_id" class="form-label">Product</label>
                     <select id="product_id" name="product_id" class="form-select" required>
@@ -237,7 +277,7 @@ ob_start();
         openModal('Add New Inventory', modalContent);
     }
 // Show Edit Inventory Modal
-    function showEditInventoryModal(inventoryId) {
+function showEditInventoryModal(inventoryId) {
         // Fetch inventory data from the PHP variable
         const inventory = <?php echo json_encode($inventory); ?>;
         const item = inventory.find(i => i.inventory_id == inventoryId);
@@ -258,11 +298,11 @@ ob_start();
                     <select id="edit_product_id" name="product_id" class="form-select" required>
                         <option value="">Select Product</option>
                         <?php foreach ($products as $product): ?>
-                            <option value="<?php echo $product['product_id']; ?>" ${
-                                item.product_id == <?php echo $product['product_id']; ?> ? "selected" : ""
-                            }>
+
+                            <option value="<?php echo $product['product_id']; ?>" <?php echo isset($item['product_id']) && $item['product_id'] == $product['product_id'] ? "selected" : ""; ?>>
                                 <?php echo $product['product_name']; ?>
                             </option>
+
                         <?php endforeach; ?>
                     </select>
                 </div>
@@ -295,24 +335,44 @@ ob_start();
                     <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
                     <button type="submit" class="btn-primary">Save Changes</button>
                 </div>
-            </form>
-        `;
+            </form>`;
 
         // Open the modal with the dynamically generated content
         openModal('Edit Inventory', modalContent);
-    }
-
+}
 function hideEditInventoryModal() {
     document.getElementById('editInventoryModal').classList.add('hidden');
 }
     
     // Confirm Delete Inventory
     function confirmDeleteInventory(inventoryId, productName) {
-        if (confirm('Are you sure you want to delete inventory for ' + productName + '?')) {
-            // In a real application, you would submit a form or make an AJAX request
-            alert('Delete inventory ' + inventoryId + ' (functionality to be implemented)');
-        }
+    if (confirm('Are you sure you want to delete inventory for product: ' + productName + '?')) {
+        // Dynamically create a form to submit the delete request
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = ''; // Submit to the same page
+
+        // Add action input to specify the delete operation
+        const actionInput = document.createElement('input');
+        actionInput.type = 'hidden';
+        actionInput.name = 'action';
+        actionInput.value = 'delete_inventory';
+
+        // Add inventoryId input to identify the inventory to delete
+        const inventoryIdInput = document.createElement('input');
+        inventoryIdInput.type = 'hidden';
+        inventoryIdInput.name = 'inventory_id';
+        inventoryIdInput.value = inventoryId;
+
+        // Append inputs to the form
+        form.appendChild(actionInput);
+        form.appendChild(inventoryIdInput);
+
+        // Append the form to the document and submit it
+        document.body.appendChild(form);
+        form.submit();
     }
+}
     
     // Search functionality
     document.addEventListener('DOMContentLoaded', function() {
