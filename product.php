@@ -1,4 +1,5 @@
 <?php
+global $pdo;
 require_once 'config.php';
 
 // Page specific variables
@@ -9,14 +10,20 @@ $pageIcon = "fas fa-pills";
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'add_product') {
         try {
+            // Get the next product_id by finding the current MAX(product_id) and incrementing
+            $stmt = $pdo->query("SELECT MAX(product_id) AS max_id FROM product");
+            $lastProductId = $stmt->fetchColumn();
+            $nextProductId = $lastProductId ? $lastProductId + 1 : 1;  // Default to 1 if no products exist
+
             // Prepare the SQL statement
             $stmt = $pdo->prepare("
-                INSERT INTO product (product_name, category_id, description, unit_price, base_price, supplier_id) 
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO product (product_id, product_name, category_id, description, unit_price, base_price, supplier_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             
             // Execute with the form data
             $stmt->execute([
+                $nextProductId,
                 $_POST['product_name'],
                 $_POST['category_id'],
                 $_POST['description'],
@@ -64,6 +71,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $errorMessage = "Error updating product: " . $e->getMessage();
     }
 }
+if ($_POST['action'] === 'delete_product' && isset($_POST['product_id'])) {
+    try {
+        // Prepare the SQL statement for deleting the product
+        $stmt = $pdo->prepare("
+            DELETE FROM product
+            WHERE product_id = ?
+        ");
+
+        // Execute the deletion
+        $stmt->execute([$_POST['product_id']]);
+
+        // Log the action
+        logAction(getCurrentUserId(), 'Deleted product with ID: ' . $_POST['product_id']);
+
+        // Set success message
+        $successMessage = "Product deleted successfully!";
+    } catch (PDOException $e) {
+        $errorMessage = "Error deleting product: " . $e->getMessage();
+    }
+}
+}
+try {
+    // Get the highest product_id
+    $lastProductId = $pdo->query("
+        SELECT MAX(product_id) AS max_id FROM product
+    ")->fetchColumn();
+
+    // If no products exist, set it to 0
+    $lastProductId = $lastProductId ? $lastProductId : 0;
+} catch (PDOException $e) {
+    $errorMessage = "Database error: " . $e->getMessage();
+    $lastProductId = 0; // Default fallback if there's a database error
 }
 
 // Get products with category and supplier names
@@ -169,11 +208,19 @@ ob_start();
 </div>
 
 <script>
+    const nextProductId = <?php echo $lastProductId + 1; ?>;
+
     // Show Add Product Modal
     function showAddProductModal() {
         const modalContent = `
             <form action="product.php" method="post" class="space-y-4">
                 <input type="hidden" name="action" value="add_product">
+
+                <div class="form-group">
+                    <label for="product_id" class="form-label">Product ID</label>
+                    <input type="text" id="product_id" class="form-input bg-gray-100" value="${nextProductId}" readonly>
+                </div>
+
                 
                 <div class="form-group">
                     <label for="product_name" class="form-label">Product Name</label>
@@ -308,8 +355,31 @@ function showEditProductModal(productId) {
     // Confirm Delete Product
     function confirmDeleteProduct(productId, productName) {
         if (confirm('Are you sure you want to delete ' + productName + '?')) {
-            // In a real application, you would submit a form or make an AJAX request
-            alert('Delete product ' + productId + ' (functionality to be implemented)');
+            // Dynamically create a form to submit the delete request
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = ''; // Submit to the same page
+
+        // Add action input to specify the delete operation
+        const actionInput = document.createElement('input');
+        actionInput.type = 'hidden';
+        actionInput.name = 'action';
+        actionInput.value = 'delete_product';
+
+        // Add productId input to identify the product to delete
+        const productIdInput = document.createElement('input');
+        productIdInput.type = 'hidden';
+        productIdInput.name = 'product_id';
+        productIdInput.value = productId;
+
+        // Append inputs to the form
+        form.appendChild(actionInput);
+        form.appendChild(productIdInput);
+
+        // Append the form to the document and submit it
+        document.body.appendChild(form);
+        form.submit();
+
         }
     }
     
