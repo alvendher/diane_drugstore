@@ -12,12 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         try {
             // Prepare the SQL statement
             $stmt = $pdo->prepare("
-                INSERT INTO supplier (supplier_name, contact_number, email, address) 
-                VALUES (?, ?, ?, ?)
+                INSERT INTO supplier (supplier_id, supplier_name, contact_number, email, address)
+                VALUES (?, ?, ?, ?, ?)
             ");
             
             // Execute with the form data
             $stmt->execute([
+                $_POST['supplier_id'],// Supplier ID (manually set or fetched as next ID)
                 $_POST['supplier_name'],
                 $_POST['contact_number'],
                 $_POST['email'],
@@ -33,6 +34,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $errorMessage = "Error adding supplier: " . $e->getMessage();
         }
     }
+
+    if ($_POST['action'] === 'edit_supplier') {
+        try {
+            // Prepare the SQL statement for updating the supplier
+            $stmt = $pdo->prepare("
+            UPDATE supplier
+            SET supplier_name = ?, contact_number = ?, email = ?, address = ?
+            WHERE supplier_id = ?
+        ");
+
+            // Execute with the form data
+            $stmt->execute([
+                $_POST['supplier_name'],
+                $_POST['contact_number'],
+                $_POST['email'],
+                $_POST['address'],
+                $_POST['supplier_id']
+
+            ]);
+
+            // Log the action
+            logAction(getCurrentUserId(), 'Edited supplier: ' . $_POST['supplier_name']);
+
+            // Set success message
+            $successMessage = "Supplier updated successfully!";
+        } catch (PDOException $e) {
+            $errorMessage = "Error updating supplier: " . $e->getMessage();
+        }
+    }
+    if ($_POST['action'] === 'delete_supplier' && isset($_POST['supplier_id'])) {
+    try {
+        // Prepare the SQL statement for deleting the supplier
+        $stmt = $pdo->prepare("
+            DELETE FROM supplier
+            WHERE supplier_id = ?
+        ");
+
+        // Execute the deletion with the provided supplier ID
+        $stmt->execute([$_POST['supplier_id']]);
+
+        // Log the action
+        logAction(getCurrentUserId(), 'Deleted supplier with ID: ' . $_POST['supplier_id']);
+
+        // Set success message
+        $successMessage = "Supplier deleted successfully!";
+    } catch (PDOException $e) {
+        $errorMessage = "Error deleting supplier: " . $e->getMessage();
+    }
+}
+}
+
+try {
+    // Get the current max supplier_id
+    $stmt = $pdo->query("SELECT MAX(supplier_id) AS max_id FROM supplier");
+    $lastSupplierId = $stmt->fetchColumn();
+
+    // Set the next supplier ID (increment by 1 or start from 1 if no supplier exists)
+    $nextSupplierId = $lastSupplierId ? $lastSupplierId + 1 : 1;
+} catch (PDOException $e) {
+    $errorMessage = "Error fetching the last supplier ID: " . $e->getMessage();
+    $nextSupplierId = 1; // Default to 1 in case of error
 }
 
 // Get suppliers
@@ -131,6 +193,12 @@ ob_start();
         const modalContent = `
             <form action="supplier.php" method="post" class="space-y-4">
                 <input type="hidden" name="action" value="add_supplier">
+                <div class="form-group">
+                    <label for="supplier_id" class="form-label">Supplier ID</label>
+                    <input type="text" id="supplier_id" name="supplier_id" class="form-input bg-gray-100" value="<?php echo $nextSupplierId; ?>" readonly>
+
+                </div>
+
                 
                 <div class="form-group">
                     <label for="supplier_name" class="form-label">Supplier Name</label>
@@ -164,17 +232,76 @@ ob_start();
     
     // Show Edit Supplier Modal
     function showEditSupplierModal(supplierId) {
-        // In a real application, you would fetch the supplier data via AJAX
-        alert('Edit supplier ' + supplierId + ' (functionality to be implemented)');
+        // Ensure the `suppliers` list is encoded properly in the PHP output
+        const suppliers = <?php echo json_encode($suppliers); ?>;
+
+        // Find the specific supplier by ID
+        const supplier = suppliers.find(s => s.supplier_id == supplierId);
+
+        const modalContent = `
+            <form action="supplier.php" method="post" class="space-y-4">
+                <input type="hidden" name="action" value="edit_supplier">
+                <input type="hidden" name="supplier_id" value="${supplier.supplier_id}">
+
+                <div class="form-group">
+                    <label for="supplier_name" class="form-label">Supplier Name</label>
+                    <input type="text" id="supplier_name" name="supplier_name" class="form-input" value = "${supplier.supplier_name}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="contact_number" class="form-label">Contact Number</label>
+                    <input type="text" id="contact_number" name="contact_number" class="form-input" placeholder="+63-X-XXX-XXXX" value = "${supplier.contact_number}" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" id="email" name="email" class="form-input" value = "${supplier.email}"required>
+                </div>
+
+                <div class="form-group">
+                    <label for="address" class="form-label">Address</label>
+                    <textarea id="address" name="address" class="form-input" rows="2" value = "${supplier.address}" required>${supplier.address}</textarea>
+                </div>
+
+                <div class="flex justify-end space-x-2">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        `;
+
+        openModal('Edit Supplier', modalContent);
     }
     
     // Confirm Delete Supplier
     function confirmDeleteSupplier(supplierId, supplierName) {
-        if (confirm('Are you sure you want to delete ' + supplierName + '?')) {
-            // In a real application, you would submit a form or make an AJAX request
-            alert('Delete supplier ' + supplierId + ' (functionality to be implemented)');
-        }
+    if (confirm('Are you sure you want to delete the supplier: ' + supplierName + '?')) {
+        // Dynamically create a form to submit the delete request
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = ''; // Submit to the same page
+
+        // Action input field to specify the delete operation
+        const actionInput = document.createElement('input');
+        actionInput.type = 'hidden';
+        actionInput.name = 'action';
+        actionInput.value = 'delete_supplier';
+
+        // Supplier ID input to identify the supplier to delete
+        const supplierIdInput = document.createElement('input');
+        supplierIdInput.type = 'hidden';
+        supplierIdInput.name = 'supplier_id';
+        supplierIdInput.value = supplierId;
+
+        // Append input fields to the form
+        form.appendChild(actionInput);
+        form.appendChild(supplierIdInput);
+
+        // Append the form to the document body and submit it
+        document.body.appendChild(form);
+        form.submit(); // Submit the form
     }
+}
     
     // Search functionality
     document.addEventListener('DOMContentLoaded', function() {
