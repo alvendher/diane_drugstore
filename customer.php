@@ -2,6 +2,7 @@
 <?php
 global $pdo;
 require_once 'config.php';
+checkLogin();
 
 // Page specific variables
 $pageTitle = "Customers";
@@ -274,7 +275,7 @@ ob_start();
         openModal('Edit Customer', modalContent);
     }
 
-    
+
     // Confirm Delete Customer
     function confirmDeleteCustomer(customerId, customerName) {
     if (confirm('Are you sure you want to delete ' + customerName + '?')) {

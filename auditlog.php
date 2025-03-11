@@ -1,5 +1,6 @@
 <?php
 require_once 'config.php';
+checkLogin();
 
 // Check if user is admin
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {

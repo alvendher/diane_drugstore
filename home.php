@@ -1,5 +1,12 @@
 <?php
 require_once 'config.php';
+function checkLogin() {
+    if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+        header('Location: login.php');
+        exit;
+    }
+}
+checkLogin();
 
 // Set timezone to Philippines
 date_default_timezone_set('Asia/Manila');
@@ -152,7 +159,7 @@ ob_start();
     </div>
     
     <div class="stat-card bg-white p-4 rounded-lg shadow-md flex flex-col">
-        <div class="text-blue-600 mb-2">
+        <div class="text-purple-600 mb-2">
             <i class="fas fa-capsules text-2xl"></i>
         </div>
         <div class="text-gray-500 text-sm">Products</div>
@@ -161,7 +168,7 @@ ob_start();
     </div>
     
     <div class="stat-card bg-white p-4 rounded-lg shadow-md flex flex-col">
-        <div class="text-green-600 mb-2">
+        <div class="text-purple-600 mb-2">
             <i class="fas fa-users text-2xl"></i>
         </div>
         <div class="text-gray-500 text-sm">Customers</div>
@@ -170,7 +177,7 @@ ob_start();
     </div>
     
     <div class="stat-card bg-white p-4 rounded-lg shadow-md flex flex-col">
-        <div class="text-yellow-600 mb-2">
+        <div class="text-purple-600 mb-2">
             <i class="fas fa-chart-line text-2xl"></i>
         </div>
         <div class="text-gray-500 text-sm">Sales</div>
@@ -179,7 +186,7 @@ ob_start();
     </div>
     
     <div class="stat-card bg-white p-4 rounded-lg shadow-md flex flex-col">
-        <div class="text-red-600 mb-2">
+        <div class="text-purple-600 mb-2">
             <i class="fas fa-truck text-2xl"></i>
         </div>
         <div class="text-gray-500 text-sm">Suppliers</div>
@@ -188,7 +195,7 @@ ob_start();
     </div>
     
     <div class="stat-card bg-white p-4 rounded-lg shadow-md flex flex-col">
-        <div class="text-indigo-600 mb-2">
+        <div class="text-purple-600 mb-2">
             <i class="fas fa-user text-2xl"></i>
         </div>
         <div class="text-gray-500 text-sm">Users</div>
@@ -208,23 +215,23 @@ ob_start();
             <span class="text-sm font-medium text-gray-700">Add Inventory</span>
         </a>
         
-        <a href="sales.php" class="quick-action bg-blue-50 hover:bg-blue-100 p-4 rounded-lg flex flex-col items-center text-center">
-            <div class="bg-blue-100 p-3 rounded-full mb-2">
-                <i class="fas fa-shopping-cart text-blue-600"></i>
+        <a href="sales.php" class="quick-action bg-purple-50 hover:bg-purple-100 p-4 rounded-lg flex flex-col items-center text-center">
+            <div class="bg-purple-100 p-3 rounded-full mb-2">
+                <i class="fas fa-shopping-cart text-purple-600"></i>
             </div>
             <span class="text-sm font-medium text-gray-700">New Sale</span>
         </a>
         
-        <a href="customer.php" class="quick-action bg-green-50 hover:bg-green-100 p-4 rounded-lg flex flex-col items-center text-center">
-            <div class="bg-green-100 p-3 rounded-full mb-2">
-                <i class="fas fa-user-plus text-green-600"></i>
+        <a href="customer.php" class="quick-action bg-purple-50 hover:bg-purple-100 p-4 rounded-lg flex flex-col items-center text-center">
+            <div class="bg-purple-100 p-3 rounded-full mb-2">
+                <i class="fas fa-user-plus text-purple-600"></i>
             </div>
             <span class="text-sm font-medium text-gray-700">Add Customer</span>
         </a>
         
-        <a href="report.php" class="quick-action bg-yellow-50 hover:bg-yellow-100 p-4 rounded-lg flex flex-col items-center text-center">
-            <div class="bg-yellow-100 p-3 rounded-full mb-2">
-                <i class="fas fa-file-alt text-yellow-600"></i>
+        <a href="report.php" class="quick-action bg-purple-50 hover:bg-purple-100 p-4 rounded-lg flex flex-col items-center text-center">
+            <div class="bg-purple-100 p-3 rounded-full mb-2">
+                <i class="fas fa-file-alt text-purple-600"></i>
             </div>
             <span class="text-sm font-medium text-gray-700">Generate Report</span>
         </a>

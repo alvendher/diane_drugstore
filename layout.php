@@ -1,3 +1,6 @@
+<?php
+ob_start();
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28,8 +31,8 @@
             margin-bottom: 2rem;
         }
         .logo-img {
-            width: 80px;
-            height: 80px;
+            width: 100px;
+            height: 100px;
             margin-bottom: 0.5rem;
         }
         .dropdown {
@@ -299,4 +302,7 @@
         }
     </script>
 </body>
-</html> 
+</html>
+<?php
+ob_end_flush();
+?> 
