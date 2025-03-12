@@ -27,4 +27,4 @@ Sumagaysay, Franchesca Shanne P.
 
 
 ITS120L - BM2  
-Prof. Vida Marie Marayags
+Prof. Vida Marie Marayag
