@@ -125,7 +125,7 @@ ob_start();
         <div class="hidden p-4 rounded-lg bg-white" id="inventory" role="tabpanel" aria-labelledby="inventory-tab">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold">Inventory Status</h2>
-                <button onclick="exportToCSV('inventoryTable', 'inventory_report')" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                <button onclick="exportToCSV('inventoryTable', 'inventory_report')" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-900">
                     <i class="fas fa-file-export mr-1"></i> Export
                 </button>
             </div>
@@ -160,7 +160,7 @@ ob_start();
         <div class="hidden p-4 rounded-lg bg-white" id="products" role="tabpanel" aria-labelledby="products-tab">
             <div class="flex justify-between items-center mb-4">
                 <h2 class="text-xl font-bold">Top Selling Products (Last 30 Days)</h2>
-                <button onclick="exportToCSV('productsTable', 'top_products_report')" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                <button onclick="exportToCSV('productsTable', 'top_products_report')" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-900">
                     <i class="fas fa-file-export mr-1"></i> Export
                 </button>
             </div>

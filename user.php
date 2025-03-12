@@ -16,30 +16,115 @@ $currentPage = "user";
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['add_user'])) {
+    if (isset($_POST['action'])) {
+        if ($_POST['action'] === 'add_user') {
+            try {
+                // Get the next user_id by finding the current MAX(user_id) and incrementing
+                $stmt = $pdo->query("SELECT MAX(user_id) AS max_id FROM user");
+                $lastUserId = $stmt->fetchColumn();
+                $nextUserId = $lastUserId ? $lastUserId + 1 : 1;  // Default to 1 if no users exist
+                
         // Process add user form
-        $email = $_POST['email'];
-        $username = $_POST['username'];
-        $password = $_POST['password'];
-        $role = $_POST['role'];
+                $stmt = $pdo->prepare("
+                    INSERT INTO user (user_id, email, username, password_hash, role)
+                    VALUES (?, ?, ?, ?, ?)
+                ");
         
         // Hash the password
-        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-        
-        try {
-            $stmt = $pdo->prepare("
-                INSERT INTO user (email, username, password_hash, role)
-                VALUES (?, ?, ?, ?)
-            ");
-            $stmt->execute([$email, $username, $passwordHash, $role]);
-            
-            logAction(getCurrentUserId(), 'Added User', "Added new user: $username with role $role");
+                $passwordHash = password_hash($_POST['password'], PASSWORD_DEFAULT);
+                
+                // Execute with form data
+                $stmt->execute([
+                    $nextUserId,
+                    $_POST['email'],
+                    $_POST['username'],
+                    $passwordHash,
+                    $_POST['role']
+                ]);
+                
+                logAction(getCurrentUserId(), 'Added User', "Added new user: {$_POST['username']} with role {$_POST['role']}");
             
             $successMessage = "User added successfully!";
         } catch(PDOException $e) {
-            $errorMessage = "Error: " . $e->getMessage();
+                $errorMessage = "Error adding user: " . $e->getMessage();
+            }
+        }
+
+        if ($_POST['action'] === 'edit_user') {
+            try {
+                $updateFields = [];
+                $params = [];
+
+                // Add email if provided
+                if (!empty($_POST['email'])) {
+                    $updateFields[] = "email = ?";
+                    $params[] = $_POST['email'];
+                }
+
+                // Add username if provided
+                if (!empty($_POST['username'])) {
+                    $updateFields[] = "username = ?";
+                    $params[] = $_POST['username'];
+                }
+
+                // Add password if provided
+                if (!empty($_POST['password'])) {
+                    $updateFields[] = "password_hash = ?";
+                    $params[] = password_hash($_POST['password'], PASSWORD_DEFAULT);
+                }
+
+                // Add role if provided
+                if (!empty($_POST['role'])) {
+                    $updateFields[] = "role = ?";
+                    $params[] = $_POST['role'];
+                }
+
+                // Add user_id to params
+                $params[] = $_POST['user_id'];
+
+                // Prepare and execute update query
+                $stmt = $pdo->prepare("
+                    UPDATE user 
+                    SET " . implode(", ", $updateFields) . "
+                    WHERE user_id = ?
+                ");
+
+                $stmt->execute($params);
+                
+                logAction(getCurrentUserId(), 'Updated User', "Updated user ID: {$_POST['user_id']}");
+                
+                $successMessage = "User updated successfully!";
+            } catch(PDOException $e) {
+                $errorMessage = "Error updating user: " . $e->getMessage();
+            }
+        }
+
+        if ($_POST['action'] === 'delete_user' && isset($_POST['user_id'])) {
+            try {
+                $stmt = $pdo->prepare("DELETE FROM user WHERE user_id = ?");
+                $stmt->execute([$_POST['user_id']]);
+                
+                logAction(getCurrentUserId(), 'Deleted User', "Deleted user ID: {$_POST['user_id']}");
+                
+                $successMessage = "User deleted successfully!";
+            } catch(PDOException $e) {
+                $errorMessage = "Error deleting user: " . $e->getMessage();
+            }
         }
     }
+}
+
+// Get the highest user_id (add this before getting users data)
+try {
+    $lastUserId = $pdo->query("
+        SELECT MAX(user_id) AS max_id FROM user
+    ")->fetchColumn();
+
+    // If no users exist, set it to 0
+    $lastUserId = $lastUserId ? $lastUserId : 0;
+} catch (PDOException $e) {
+    $errorMessage = "Database error: " . $e->getMessage();
+    $lastUserId = 0; // Default fallback if there's a database error
 }
 
 // Get users data
@@ -114,12 +199,14 @@ ob_start();
                         <td class="py-3 px-6"><?php echo $user['role']; ?></td>
                         <td class="py-3 px-6">
                             <div class="flex">
-                                <a href="edit_user.php?id=<?php echo $user['user_id']; ?>" class="text-indigo-600 hover:text-indigo-900 mr-3">
+                                <button onclick="showEditUserModal(<?php echo htmlspecialchars(json_encode($user)); ?>)" 
+                                        class="text-indigo-600 hover:text-indigo-900 mr-3">
                                     <i class="fas fa-edit"></i>
-                                </a>
-                                <a href="delete_user.php?id=<?php echo $user['user_id']; ?>" class="text-red-600 hover:text-red-900" onclick="return confirm('Are you sure you want to delete this user?')">
+                                </button>
+                                <button onclick="confirmDeleteUser(<?php echo $user['user_id']; ?>, '<?php echo addslashes($user['username']); ?>')" 
+                                        class="text-red-600 hover:text-red-900">
                                     <i class="fas fa-trash"></i>
-                                </a>
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -132,8 +219,17 @@ ob_start();
 <script>
     // Show Add User Modal
     function showAddUserModal() {
+        const nextUserId = <?php echo $lastUserId + 1; ?>;
+        
         const modalContent = `
             <form method="POST" action="" class="space-y-4">
+                <input type="hidden" name="add_user" value="1">
+                
+                <div class="form-group">
+                    <label class="block text-gray-700 mb-2" for="user_id">User ID</label>
+                    <input type="text" id="user_id" class="w-full p-2 border rounded bg-gray-100" value="${nextUserId}" readonly>
+                </div>
+
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-gray-700 mb-2" for="email">Email</label>
@@ -150,6 +246,7 @@ ob_start();
                     <div>
                         <label class="block text-gray-700 mb-2" for="role">Role</label>
                         <select name="role" id="role" class="w-full p-2 border rounded" required>
+                            <option value="">Select Role</option>
                             <option value="Admin">Admin</option>
                             <option value="Pharmacist">Pharmacist</option>
                             <option value="Cashier">Cashier</option>
@@ -162,7 +259,7 @@ ob_start();
                     <button type="button" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600" onclick="closeModal()">
                         Cancel
                     </button>
-                    <button type="submit" name="add_user" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                    <button type="submit" class="btn-primary">
                         Add User
                     </button>
                 </div>
@@ -312,6 +409,81 @@ ob_start();
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    }
+
+    // Show Edit User Modal
+    function showEditUserModal(user) {
+        const modalContent = `
+            <form method="POST" action="" class="space-y-4">
+                <input type="hidden" name="action" value="edit_user">
+                <input type="hidden" name="user_id" value="${user.user_id}">
+
+                <div class="form-group">
+                    <label class="block text-gray-700 mb-2" for="edit_user_id">User ID</label>
+                    <input type="text" id="edit_user_id" class="w-full p-2 border rounded bg-gray-100" value="${user.user_id}" readonly>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 mb-2" for="email">Email</label>
+                        <input type="email" name="email" id="email" class="w-full p-2 border rounded" value="${user.email}" required>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-2" for="username">Username</label>
+                        <input type="text" name="username" id="username" class="w-full p-2 border rounded" value="${user.username}" required>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-2" for="password">Password</label>
+                        <input type="password" name="password" id="password" class="w-full p-2 border rounded" placeholder="Leave blank to keep current">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 mb-2" for="role">Role</label>
+                        <select name="role" id="role" class="w-full p-2 border rounded" required>
+                            <option value="">Select Role</option>
+                            <option value="Admin" ${user.role === 'Admin' ? 'selected' : ''}>Admin</option>
+                            <option value="Pharmacist" ${user.role === 'Pharmacist' ? 'selected' : ''}>Pharmacist</option>
+                            <option value="Cashier" ${user.role === 'Cashier' ? 'selected' : ''}>Cashier</option>
+                            <option value="Inventory" ${user.role === 'Inventory' ? 'selected' : ''}>Inventory</option>
+                            <option value="Staff" ${user.role === 'Staff' ? 'selected' : ''}>Staff</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-2 mt-4">
+                    <button type="button" class="btn-secondary" onclick="closeModal()">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn-primary">
+                        Save Changes
+                    </button>
+                </div>
+            </form>
+        `;
+        
+        openModal('Edit User', modalContent);
+    }
+
+    // Confirm Delete User
+    function confirmDeleteUser(userId, username) {
+        if (confirm(`Are you sure you want to delete user "${username}"?`)) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '';
+
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+            actionInput.value = 'delete_user';
+
+            const userIdInput = document.createElement('input');
+            userIdInput.type = 'hidden';
+            userIdInput.name = 'user_id';
+            userIdInput.value = userId;
+
+            form.appendChild(actionInput);
+            form.appendChild(userIdInput);
+            document.body.appendChild(form);
+            form.submit();
+        }
     }
 </script>
 

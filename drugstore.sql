@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3307
--- Generation Time: Mar 09, 2025 at 07:09 PM
+-- Generation Time: Mar 12, 2025 at 02:19 PM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.0.30
 
@@ -40,6 +40,7 @@ CREATE TABLE `audit_log` (
 --
 
 INSERT INTO `audit_log` (`log_id`, `user_id`, `action`, `timestamp`, `details`) VALUES
+(0, 1, 'Login', '2025-03-10 02:15:25', 'User logged in successfully'),
 (1, 1, 'Login', '2025-01-05 08:00:00', 'System login from IP 192.168.1.1'),
 (2, 2, 'Inventory Update', '2025-01-05 09:15:00', 'Added 50 units of Amoxicillin'),
 (3, 3, 'Product Added', '2025-01-06 10:30:00', 'Added new product: Vitamin C 500mg'),
@@ -158,6 +159,7 @@ CREATE TABLE `expired_products` (
 --
 
 INSERT INTO `expired_products` (`expired_id`, `inventory_id`, `product_id`, `quantity`, `expiry_date`, `disposal_date`, `disposal_method`, `disposal_notes`, `disposal_by`) VALUES
+(0, 10, 1, 1, '2024-06-19', '2025-03-12', 'Return to Supplier', 'Disposed through medical waste contractor', 1),
 (1, 1, 1, 25, '2025-01-05', '2025-01-06', 'Disposal', 'Returned to supplier for proper disposal', 5),
 (2, 2, 2, 15, '2025-01-10', '2025-01-12', 'Disposal', 'Disposed through medical waste contractor', 3),
 (3, 3, 3, 10, '2025-01-12', '2025-01-14', 'Disposal', 'Disposed through medical waste contractor', 5),
@@ -182,24 +184,67 @@ CREATE TABLE `inventory` (
   `stock_out` int(11) DEFAULT NULL,
   `expiry_date` date DEFAULT NULL,
   `stock_available` int(11) DEFAULT NULL,
-  `low_stock_threshold` int(11) DEFAULT NULL
+  `low_stock_threshold` int(11) DEFAULT NULL,
+  `status` enum('active','quarantined','expired') DEFAULT 'active'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 --
 -- Dumping data for table `inventory`
 --
 
-INSERT INTO `inventory` (`inventory_id`, `product_id`, `stock_in`, `stock_out`, `expiry_date`, `stock_available`, `low_stock_threshold`) VALUES
-(1, 1, 500, 125, '2026-06-15', 375, 100),
-(2, 2, 1000, 350, '2027-03-20', 650, 200),
-(3, 3, 300, 85, '2026-12-10', 215, 50),
-(4, 4, 250, 60, '2026-09-05', 190, 40),
-(5, 5, 400, 120, '2028-01-15', 280, 80),
-(6, 6, 150, 35, '2026-05-22', 115, 30),
-(7, 7, 50, 12, '2027-07-18', 38, 10),
-(8, 8, 350, 95, '2026-11-30', 255, 70),
-(9, 9, 200, 45, '2027-02-25', 155, 50),
-(10, 10, 600, 175, '2027-08-14', 425, 100);
+INSERT INTO `inventory` (`inventory_id`, `product_id`, `stock_in`, `stock_out`, `expiry_date`, `stock_available`, `low_stock_threshold`, `status`) VALUES
+(1, 1, 500, 138, '2026-06-15', 362, 100, 'active'),
+(2, 2, 1000, 350, '2027-03-20', 650, 200, 'active'),
+(3, 3, 300, 85, '2026-12-10', 215, 50, 'active'),
+(4, 4, 250, 60, '2026-09-05', 190, 40, 'active'),
+(5, 5, 400, 120, '2028-01-15', 280, 80, 'active'),
+(6, 7, 90, 35, '2026-05-22', 55, 30, 'active'),
+(7, 8, 9, 11, '2027-07-18', -2, 10, 'active'),
+(8, 8, 350, 95, '2026-11-30', 255, 70, 'active'),
+(9, 4, 200, 45, '2025-03-29', 155, 50, 'active'),
+(10, 6, 800, 175, '2024-06-19', 625, 100, 'expired');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `password_resets`
+--
+
+CREATE TABLE `password_resets` (
+  `reset_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `token` varchar(64) NOT NULL,
+  `expiry_date` datetime NOT NULL,
+  `used` tinyint(1) DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `password_resets`
+--
+
+INSERT INTO `password_resets` (`reset_id`, `user_id`, `token`, `expiry_date`, `used`, `created_at`) VALUES
+(1, 1, '8f5adee3174a814c5a910ebfbc0886835408bc156bfe042c67a8af0a1689851c', '2025-03-10 18:48:45', 0, '2025-03-10 16:48:45'),
+(2, 1, '5799bf34c88bac6ec2851886493de078b25b4f51bf47ff0b3d6a29ca31933a0c', '2025-03-10 18:49:51', 0, '2025-03-10 16:49:51'),
+(3, 1, 'b65a1e57ba39a38e7034d73241053946f48ea0877410c24a61671632e3c9ca83', '2025-03-10 18:51:12', 0, '2025-03-10 16:51:12'),
+(4, 1, '4890a0aa1be93e7f9ed4968283556c0b9466cc7d8d4c57f43f645b630f67644f', '2025-03-10 18:51:29', 0, '2025-03-10 16:51:29'),
+(5, 1, '2a65ad09ec62e3f61bb8c11f87dae4dd2e216c8bcc964aa3447ed3c38435e223', '2025-03-10 18:52:56', 0, '2025-03-10 16:52:56'),
+(6, 1, '24085b946cdce2013189a18d3c43e0b7dbd502b4f218674f5e73b23de4a7f43c', '2025-03-10 19:09:41', 0, '2025-03-10 17:09:41'),
+(7, 1, '97cd6574e28a46122c423b96981c744a3cf0ea5829e0cc612f6659ca9663fec7', '2025-03-10 19:09:53', 0, '2025-03-10 17:09:53'),
+(8, 1, '165fda79786e814d168376898e9073e7be769d011fe2de734620fda85efbbb4b', '2025-03-10 19:11:04', 0, '2025-03-10 17:11:04'),
+(9, 1, '6d60441eda1eb81191487e1f68dce50673bea8a899b480f1df46dd838e689447', '2025-03-10 19:26:25', 0, '2025-03-10 17:26:25'),
+(10, 1, 'b14f3af22d57d669979d927697db56fa204bd33f2ad3df33d646b26fbaf761f7', '2025-03-10 19:28:02', 0, '2025-03-10 17:28:02'),
+(11, 1, 'ec6954c8c3f5d08a44ac57f6dc81a6b9bbf6a2115e97020c930b7481d482f896', '2025-03-10 19:28:17', 0, '2025-03-10 17:28:17'),
+(12, 1, '991a68730aa4960bdf1b42a3b9ff626ba823822bbaa822382aaa2a5aeef88743', '2025-03-10 19:29:21', 0, '2025-03-10 17:29:21'),
+(13, 1, 'e95e769c755e576bd30320f2c23f78eb1b7ab505fe8e6426d3ef59e80c80548b', '2025-03-10 19:31:19', 0, '2025-03-10 17:31:19'),
+(14, 1, '556b60ebeabe17e5a5c959b091c68723f67409114d5164eff624f2db48475ce8', '2025-03-10 19:32:12', 0, '2025-03-10 17:32:12'),
+(15, 1, '461e58eb245725e7e0307baee4b2863ae930097694c2a2aec655ed55c19ad360', '2025-03-10 19:34:07', 0, '2025-03-10 17:34:07'),
+(16, 1, '2bc3ccf48a7e7f6f94367bd9316da7c8889b1196e80977c779f3e4fadf41aa9e', '2025-03-11 17:51:08', 0, '2025-03-11 15:51:08'),
+(17, 1, 'f54f05534faca127c31baac3b446d8997d2c1e9d3913670fffaaf7c85701df98', '2025-03-11 17:51:12', 0, '2025-03-11 15:51:12'),
+(18, 1, 'ea2ed891d7f71066f9e61a22bf811420801d0e08931efa0babb35bb71c5260f3', '2025-03-11 17:51:16', 0, '2025-03-11 15:51:16'),
+(19, 1, '70efdcfb2883d9d3b1179e2ff027b4b860884c9d599e2dfdb6406ca42a892ca0', '2025-03-11 17:51:20', 0, '2025-03-11 15:51:20'),
+(20, 1, '0f000f5042f2aa1346866779fe9b0517783879efb99d995a0d34e72cd2f96839', '2025-03-11 17:51:24', 0, '2025-03-11 15:51:24'),
+(21, 1, '6aa6d070cc3ab6149bdfbf9d2cdeba4d35e776b81c76257837d9bacbf634907a', '2025-03-11 17:51:27', 0, '2025-03-11 15:51:27');
 
 -- --------------------------------------------------------
 
@@ -231,7 +276,7 @@ INSERT INTO `product` (`product_id`, `product_name`, `category_id`, `description
 (7, 'Blood Pressure Monitor', 7, 'Digital BP monitoring device', 45.99, 30.00, 7),
 (8, 'Antiseptic Solution', 8, 'For cleaning wounds and cuts', 7.80, 4.50, 8),
 (9, 'Adult Diapers', 9, 'Absorbent adult undergarments', 14.50, 9.75, 9),
-(10, 'Face Mask N95', 10, 'Protective respiratory mask', 5.99, 3.25, 10);
+(10, 'Face Mask N95', 10, 'Protective respiratory mask', 6.99, 3.25, 10);
 
 -- --------------------------------------------------------
 
@@ -376,7 +421,7 @@ CREATE TABLE `sales_details` (
 --
 
 INSERT INTO `sales_details` (`sales_details_id`, `invoice_id`, `product_id`, `quantity`, `unit_price`, `subtotal`) VALUES
-(1, 1, 1, 3, 8.50, 25.50),
+(0, 1, 1, 6, 8.50, 51.00),
 (2, 2, 2, 5, 3.15, 15.75),
 (3, 3, 7, 1, 45.99, 45.99),
 (4, 4, 4, 3, 9.95, 29.85),
@@ -436,7 +481,7 @@ CREATE TABLE `user` (
 --
 
 INSERT INTO `user` (`user_id`, `email`, `username`, `password_hash`, `role`) VALUES
-(1, 'ajfrancisco@djerpharmacy.com', 'ajfrancisco', 'hashed_password_1', 'Admin'),
+(1, 'franciscoalvendherjoy01@gmail.com', 'ajfrancisco', 'hashed_password_1', 'Admin'),
 (2, 'fssumagaysay@djerpharmacy.com', 'fssumagaysay', 'hashed_password_2', 'Admin'),
 (3, 'marcos@djerpharmacy.com', 'jmarcos', 'hashed_password_3', 'Pharmacist'),
 (4, 'santos@djerpharmacy.com', 'lsantos', 'hashed_password_4', 'Cashier'),
@@ -491,6 +536,13 @@ ALTER TABLE `expired_products`
 ALTER TABLE `inventory`
   ADD PRIMARY KEY (`inventory_id`),
   ADD KEY `product_id` (`product_id`);
+
+--
+-- Indexes for table `password_resets`
+--
+ALTER TABLE `password_resets`
+  ADD PRIMARY KEY (`reset_id`),
+  ADD KEY `user_id` (`user_id`);
 
 --
 -- Indexes for table `product`
@@ -551,6 +603,16 @@ ALTER TABLE `user`
   ADD PRIMARY KEY (`user_id`);
 
 --
+-- AUTO_INCREMENT for dumped tables
+--
+
+--
+-- AUTO_INCREMENT for table `password_resets`
+--
+ALTER TABLE `password_resets`
+  MODIFY `reset_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=22;
+
+--
 -- Constraints for dumped tables
 --
 
@@ -573,6 +635,12 @@ ALTER TABLE `expired_products`
 --
 ALTER TABLE `inventory`
   ADD CONSTRAINT `inventory_ibfk_1` FOREIGN KEY (`product_id`) REFERENCES `product` (`product_id`);
+
+--
+-- Constraints for table `password_resets`
+--
+ALTER TABLE `password_resets`
+  ADD CONSTRAINT `password_resets_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `user` (`user_id`);
 
 --
 -- Constraints for table `product`

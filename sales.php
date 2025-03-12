@@ -1,4 +1,5 @@
 <?php
+global $pdo;
 require_once 'config.php';
 checkLogin();
 
@@ -20,14 +21,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Begin transaction
             $pdo->beginTransaction();
             
-            // Insert into sales table
+            // Modified INSERT query - remove invoice_id from the column list
             $stmt = $pdo->prepare("
                 INSERT INTO sales (customer_id, invoice_date, total_amount, discount_id, net_total)
                 VALUES (?, ?, ?, ?, ?)
             ");
             $stmt->execute([$customerId, $invoiceDate, $totalAmount, $discountId, $netTotal]);
             
-            // Get the new invoice ID
+            // Get the auto-generated invoice_id
             $invoiceId = $pdo->lastInsertId();
             
             // Insert sales details
@@ -60,12 +61,136 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
             
             logAction(getCurrentUserId(), 'Added Invoice', "Created invoice #$invoiceId for customer #$customerId");
-            
-            $successMessage = "Invoice added successfully!";
+            $successMessage = "Invoice #$invoiceId created successfully!";
         } catch(PDOException $e) {
             // Rollback transaction on error
             $pdo->rollBack();
             $errorMessage = "Error: " . $e->getMessage();
+        }
+    }
+
+    if (isset($_POST['action']) && $_POST['action'] === 'edit_sale') {
+        try {
+            // Begin transaction
+            $pdo->beginTransaction();
+            
+            // Update sales table
+            $stmt = $pdo->prepare("
+                UPDATE sales
+                SET customer_id = ?, invoice_date = ?, total_amount = ?, discount_id = ?, net_total = ?
+                WHERE invoice_id = ?
+            ");
+            $stmt->execute([
+                $_POST['customer_id'],
+                $_POST['invoice_date'],
+                $_POST['total_amount'],
+                !empty($_POST['discount_id']) ? $_POST['discount_id'] : null,
+                $_POST['net_total'],
+                $_POST['invoice_id'],
+            ]);
+            
+            // First, delete all existing sales details for this invoice
+            $stmt = $pdo->prepare("DELETE FROM sales_details WHERE invoice_id = ?");
+            $stmt->execute([$_POST['invoice_id']]);
+            
+            // Also update inventory for deleted items (add back to stock)
+            $stmt = $pdo->prepare("
+                UPDATE inventory i
+                JOIN (
+                    SELECT sd.product_id, SUM(sd.quantity) as total_quantity
+                    FROM sales_details sd
+                    WHERE sd.invoice_id = ?
+                    GROUP BY sd.product_id
+                ) as old_items ON i.product_id = old_items.product_id
+                SET i.stock_out = i.stock_out - old_items.total_quantity,
+                    i.stock_available = i.stock_available + old_items.total_quantity
+            ");
+            $stmt->execute([$_POST['invoice_id']]);
+            
+            // Now insert the updated sales details
+            $productIds = $_POST['product_id'];
+            $quantities = $_POST['quantity'];
+            $unitPrices = $_POST['unit_price'];
+            $subtotals = $_POST['subtotal'];
+            
+            for ($i = 0; $i < count($productIds); $i++) {
+                if (!empty($productIds[$i]) && !empty($quantities[$i])) {
+                    // Insert sales detail
+                    $stmt = $pdo->prepare("
+                        INSERT INTO sales_details (invoice_id, product_id, quantity, unit_price, subtotal)
+                        VALUES (?, ?, ?, ?, ?)
+                    ");
+                    $stmt->execute([
+                        $_POST['invoice_id'],
+                        $productIds[$i],
+                        $quantities[$i],
+                        $unitPrices[$i],
+                        $subtotals[$i]
+                    ]);
+                    
+                    // Update inventory
+                    $stmt = $pdo->prepare("
+                        UPDATE inventory 
+                        SET stock_out = stock_out + ?, 
+                            stock_available = stock_available - ?
+                        WHERE product_id = ?
+                    ");
+                    $stmt->execute([
+                        $quantities[$i],
+                        $quantities[$i],
+                        $productIds[$i]
+                    ]);
+                }
+            }
+            
+            // Commit transaction
+            $pdo->commit();
+            
+            logAction(getCurrentUserId(), 'Edited Invoice', "Updated invoice #" . $_POST['invoice_id']);
+            $successMessage = "Invoice updated successfully!";
+        } catch(PDOException $e) {
+            // Rollback transaction on error
+            $pdo->rollBack();
+            $errorMessage = "Error updating invoice: " . $e->getMessage();
+        }
+    }
+
+    if (isset($_POST['action']) && $_POST['action'] === 'delete_sale' && isset($_POST['invoice_id'])) {
+        try {
+            // Begin transaction
+            $pdo->beginTransaction();
+            
+            // First, update inventory for deleted items (add back to stock)
+            $stmt = $pdo->prepare("
+                UPDATE inventory i
+                JOIN (
+                    SELECT sd.product_id, SUM(sd.quantity) as total_quantity
+                    FROM sales_details sd
+                    WHERE sd.invoice_id = ?
+                    GROUP BY sd.product_id
+                ) as old_items ON i.product_id = old_items.product_id
+                SET i.stock_out = i.stock_out - old_items.total_quantity,
+                    i.stock_available = i.stock_available + old_items.total_quantity
+            ");
+            $stmt->execute([$_POST['invoice_id']]);
+            
+            // Delete sales details first (due to foreign key constraints)
+            $stmt = $pdo->prepare("DELETE FROM sales_details WHERE invoice_id = ?");
+            $stmt->execute([$_POST['invoice_id']]);
+            
+            // Then delete the sales record
+            $stmt = $pdo->prepare("DELETE FROM sales WHERE invoice_id = ?");
+            $stmt->execute([$_POST['invoice_id']]);
+            
+            // Commit transaction
+            $pdo->commit();
+            
+            logAction(getCurrentUserId(), 'Deleted Invoice', "Deleted invoice #" . $_POST['invoice_id']);
+            $successMessage = "Invoice deleted successfully!";
+        } catch(PDOException $e) {
+            // Rollback transaction on error
+            $pdo->rollBack();
+            $errorMessage = "Error deleting invoice: " . $e->getMessage();
         }
     }
 }
@@ -177,12 +302,12 @@ ob_start();
                                 <a href="view_invoice.php?id=<?php echo $sale['invoice_id']; ?>" class="text-green-600 hover:text-green-900 mr-2">
                                     <i class="fas fa-eye"></i>
                                 </a>
-                                <a href="edit_sale.php?id=<?php echo $sale['invoice_id']; ?>" class="text-indigo-600 hover:text-indigo-900 mr-3">
+                                <button onclick="showEditSaleModal(<?php echo $sale['invoice_id']; ?>)" class="text-indigo-600 hover:text-indigo-900 mr-3">
                                     <i class="fas fa-edit"></i>
-                                </a>
-                                <a href="delete_sale.php?id=<?php echo $sale['invoice_id']; ?>" class="text-red-600 hover:text-red-900" onclick="return confirm('Are you sure you want to delete this invoice?')">
+                                </button>
+                                <button onclick="confirmDeleteSale(<?php echo $sale['invoice_id']; ?>, '<?php echo $sale['invoice_id']; ?>')" class="text-red-600 hover:text-red-900">
                                     <i class="fas fa-trash"></i>
-                                </a>
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -192,39 +317,36 @@ ob_start();
     </div>
 </div>
 
+<!-- Add this modal HTML structure at the bottom of the file, before the closing body tag -->
+<div id="modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden">
+    <div class="relative top-20 mx-auto p-5 border w-4/5 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+            <h2 class="text-xl font-bold mb-4" id="modal-title"></h2>
+            <div id="modal-content"></div>
+        </div>
+    </div>
+</div>
+
 <script>
     // Show Add Invoice Modal
     function showAddInvoiceModal() {
+        console.log('Opening add invoice modal');
         const modalContent = `
             <form action="" method="POST" id="invoiceForm" class="space-y-4">
                 <input type="hidden" name="add_invoice" value="1">
                 
-                <div class="grid grid-cols-3 gap-4 mb-4">
+                <div class="grid grid-cols-2 gap-4 mb-4">
                     <div>
-                        <label class="block text-gray-700 mb-2" for="customer_id">Customer</label>
-                        <select name="customer_id" id="customer_id" class="w-full p-2 border rounded" required>
-                            <option value="">Select Customer</option>
-                            <?php foreach ($customers as $customer): ?>
-                                <option value="<?php echo $customer['customer_id']; ?>">
-                                    <?php echo $customer['first_name'] . ' ' . $customer['last_name']; ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
+                        <label class="block text-gray-700 mb-2" for="customer_search">Customer</label>
+                        <div class="relative">
+                            <input type="text" id="customer_search" class="w-full p-2 border rounded" placeholder="Search customer..." autocomplete="off">
+                            <input type="hidden" name="customer_id" id="customer_id" required>
+                            <div id="customer_suggestions" class="absolute z-10 w-full bg-white border border-gray-300 rounded mt-1 max-h-48 overflow-y-auto hidden"></div>
+                        </div>
                     </div>
                     <div>
                         <label class="block text-gray-700 mb-2" for="invoice_date">Invoice Date</label>
                         <input type="date" name="invoice_date" id="invoice_date" class="w-full p-2 border rounded" value="<?php echo date('Y-m-d'); ?>" required>
-                    </div>
-                    <div>
-                        <label class="block text-gray-700 mb-2" for="discount_id">Discount</label>
-                        <select name="discount_id" id="discount_id" class="w-full p-2 border rounded">
-                            <option value="">No Discount</option>
-                            <?php foreach ($discounts as $discount): ?>
-                                <option value="<?php echo $discount['discount_id']; ?>" data-amount="<?php echo $discount['discount_amount']; ?>">
-                                    <?php echo $discount['discount_type'] . ' (' . $discount['discount_amount'] . '%)'; ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
                     </div>
                 </div>
                 
@@ -272,7 +394,17 @@ ob_start();
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
-                    <div></div>
+                    <div>
+                        <label class="block text-gray-700 mb-2" for="discount_id">Discount</label>
+                        <select name="discount_id" id="discount_id" class="w-full p-2 border rounded">
+                            <option value="">No Discount</option>
+                            <?php foreach ($discounts as $discount): ?>
+                                <option value="<?php echo $discount['discount_id']; ?>" data-amount="<?php echo $discount['discount_amount']; ?>">
+                                    <?php echo $discount['discount_type'] . ' (' . $discount['discount_amount'] . '%)'; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div class="text-right font-bold">Total Amount:</div>
                         <div>
@@ -302,10 +434,88 @@ ob_start();
         
         openModal('Create New Invoice', modalContent);
         
-        // Setup event listeners for the modal form
-        setupInvoiceFormListeners();
+        // Setup event listeners after the modal is opened
+        setTimeout(() => {
+            setupInvoiceFormListeners();
+            setupCustomerAutocomplete();
+        }, 100);
     }
     
+    function setupCustomerAutocomplete() {
+        const customerSearch = document.getElementById('customer_search');
+        const customerIdField = document.getElementById('customer_id');
+        const suggestionsBox = document.getElementById('customer_suggestions');
+        const customers = <?php echo json_encode($customers); ?>;
+        
+        // Show suggestions when typing
+        customerSearch.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            
+            // Clear previous suggestions and customer ID when input changes
+            suggestionsBox.innerHTML = '';
+            customerIdField.value = '';
+            
+            if (searchTerm.length < 1) {
+                suggestionsBox.classList.add('hidden');
+                return;
+            }
+            
+            // Filter customers
+            const matches = customers.filter(customer => 
+                (customer.first_name + ' ' + customer.last_name).toLowerCase().includes(searchTerm)
+            );
+            
+            if (matches.length > 0) {
+                suggestionsBox.classList.remove('hidden');
+                
+                matches.forEach(customer => {
+                    const suggestion = document.createElement('div');
+                    suggestion.className = 'p-2 hover:bg-gray-200 cursor-pointer';
+                    suggestion.textContent = customer.first_name + ' ' + customer.last_name;
+                    
+                    suggestion.addEventListener('click', function() {
+                        customerSearch.value = customer.first_name + ' ' + customer.last_name;
+                        customerIdField.value = customer.customer_id;
+                        suggestionsBox.classList.add('hidden');
+                    });
+                    
+                    suggestionsBox.appendChild(suggestion);
+                });
+            } else {
+                suggestionsBox.classList.add('hidden');
+            }
+        });
+        
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', function(e) {
+            if (e.target !== customerSearch && e.target !== suggestionsBox) {
+                suggestionsBox.classList.add('hidden');
+            }
+        });
+        
+        // Show all options on focus if no search term
+        customerSearch.addEventListener('focus', function() {
+            if (this.value.length === 0 && customers.length > 0) {
+                suggestionsBox.innerHTML = '';
+                suggestionsBox.classList.remove('hidden');
+                
+                customers.forEach(customer => {
+                    const suggestion = document.createElement('div');
+                    suggestion.className = 'p-2 hover:bg-gray-200 cursor-pointer';
+                    suggestion.textContent = customer.first_name + ' ' + customer.last_name;
+                    
+                    suggestion.addEventListener('click', function() {
+                        customerSearch.value = customer.first_name + ' ' + customer.last_name;
+                        customerIdField.value = customer.customer_id;
+                        suggestionsBox.classList.add('hidden');
+                    });
+                    
+                    suggestionsBox.appendChild(suggestion);
+                });
+            }
+        });
+    }
+
     function setupInvoiceFormListeners() {
         // Initial item setup
         setupItemListeners(document.querySelector('.invoice-item'));
@@ -345,8 +555,22 @@ ob_start();
         
         // Form submission
         document.getElementById('invoiceForm').addEventListener('submit', function(e) {
+            e.preventDefault(); // Prevent default submission to validate first
+            
+            // Validate customer selection
+            const customerIdField = document.getElementById('customer_id');
+            const customerSearch = document.getElementById('customer_search');
+            
+            if (!customerIdField.value || customerIdField.value === '0') {
+                alert('Please select a valid customer from the suggestions list');
+                customerSearch.focus();
+                return false;
+            }
+            
+            // Validate product items
             const items = document.querySelectorAll('.invoice-item');
             let valid = true;
+            let hasItems = false;
             
             items.forEach(item => {
                 const productSelect = item.querySelector('.product-select');
@@ -354,15 +578,25 @@ ob_start();
                 const stock = parseInt(productSelect.options[productSelect.selectedIndex]?.dataset.stock || 0);
                 
                 if (productSelect.value && quantity.value) {
+                    hasItems = true;
                     if (parseInt(quantity.value) > stock) {
                         alert(`Quantity exceeds available stock for ${productSelect.options[productSelect.selectedIndex].text}`);
                         valid = false;
                     }
+                } else if (productSelect.value || quantity.value) {
+                    // If one is filled but not the other
+                    alert('Please complete all product selections with valid quantities');
+                    valid = false;
                 }
             });
             
-            if (!valid) {
-                e.preventDefault();
+            if (!hasItems) {
+                alert('Please add at least one product to the invoice');
+                valid = false;
+            }
+            
+            if (valid) {
+                this.submit(); // Only submit if all validations pass
             }
         });
     }
@@ -569,6 +803,248 @@ ob_start();
         a.click();
         document.body.removeChild(a);
     }
+
+    // Show Edit Sale Modal
+    function showEditSaleModal(invoiceId) {
+        // Use AJAX to fetch the sale details first
+        fetch(`get_sale_details.php?invoice_id=${invoiceId}`)
+            .then(response => response.json())
+            .then(data => {
+                const sale = data.sale;
+                const saleDetails = data.saleDetails;
+                
+                // Create the modal content with the sale data
+                const modalContent = `
+                    <form action="" method="POST" id="editInvoiceForm" class="space-y-4">
+                        <input type="hidden" name="action" value="edit_sale">
+                        <input type="hidden" name="invoice_id" value="${sale.invoice_id}">
+                        
+                        <div class="grid grid-cols-3 gap-4 mb-4">
+                            <div>
+                                <label class="block text-gray-700 mb-2" for="customer_id">Customer</label>
+                                <select name="customer_id" id="edit_customer_id" class="w-full p-2 border rounded" required>
+                                    <option value="">Select Customer</option>
+                                    <?php foreach ($customers as $customer): ?>
+                                        <option value="<?php echo $customer['customer_id']; ?>" ${sale.customer_id == <?php echo $customer['customer_id']; ?> ? 'selected' : ''}>
+                                            <?php echo $customer['first_name'] . ' ' . $customer['last_name']; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 mb-2" for="invoice_date">Invoice Date</label>
+                                <input type="date" name="invoice_date" id="edit_invoice_date" class="w-full p-2 border rounded" value="${sale.invoice_date}" required>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 mb-2" for="discount_id">Discount</label>
+                                <select name="discount_id" id="edit_discount_id" class="w-full p-2 border rounded">
+                                    <option value="">No Discount</option>
+                                    <?php foreach ($discounts as $discount): ?>
+                                        <option value="<?php echo $discount['discount_id']; ?>" 
+                                                data-amount="<?php echo $discount['discount_amount']; ?>"
+                                                ${sale.discount_id == <?php echo $discount['discount_id']; ?> ? 'selected' : ''}>
+                                            <?php echo $discount['discount_type'] . ' (' . $discount['discount_amount'] . '%)'; ?>
+                                        </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <h3 class="font-bold mb-2">Invoice Items</h3>
+                        <div id="edit-invoice-items">
+                            <div class="grid grid-cols-5 gap-2 mb-2 font-bold">
+                                <div>Product</div>
+                                <div>Available</div>
+                                <div>Quantity</div>
+                                <div>Unit Price</div>
+                                <div>Subtotal</div>
+                            </div>
+                            ${saleDetails.map((item, index) => `
+                                <div class="invoice-item grid grid-cols-5 gap-2 mb-2">
+                                    <div>
+                                        <select name="product_id[]" class="product-select w-full p-2 border rounded" required>
+                                            <option value="">Select Product</option>
+                                            <?php foreach ($products as $product): ?>
+                                                <option value="<?php echo $product['product_id']; ?>" 
+                                                        data-price="<?php echo $product['unit_price']; ?>"
+                                                        data-stock="<?php echo $product['stock_available']; ?>"
+                                                        ${item.product_id == <?php echo $product['product_id']; ?> ? 'selected' : ''}>
+                                                    <?php echo $product['product_name']; ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <input type="text" class="stock-display w-full p-2 border rounded bg-gray-100" readonly 
+                                               value="${getProductStock(item.product_id)}">
+                                    </div>
+                                    <div>
+                                        <input type="number" name="quantity[]" class="quantity w-full p-2 border rounded" 
+                                               min="1" value="${item.quantity}" required>
+                                    </div>
+                                    <div>
+                                        <input type="number" name="unit_price[]" class="unit-price w-full p-2 border rounded" 
+                                               step="0.01" value="${item.unit_price}" readonly>
+                                    </div>
+                                    <div class="flex items-center">
+                                        <input type="number" name="subtotal[]" class="subtotal w-full p-2 border rounded" 
+                                               step="0.01" value="${item.subtotal}" readonly>
+                                        ${index > 0 ? `<button type="button" class="remove-item text-red-500 ml-2"><i class="fas fa-times"></i></button>` : ''}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        
+                        <div class="mb-4">
+                            <button type="button" id="add-edit-item" class="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
+                                <i class="fas fa-plus mr-1"></i> Add Item
+                            </button>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div></div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div class="text-right font-bold">Total Amount:</div>
+                                <div>
+                                    <input type="number" name="total_amount" id="edit_total_amount" class="w-full p-2 border rounded" 
+                                           step="0.01" value="${sale.total_amount}" readonly>
+                                </div>
+                                <div class="text-right font-bold">Discount:</div>
+                                <div>
+                                    <input type="number" id="edit_discount_amount" class="w-full p-2 border rounded" 
+                                           step="0.01" value="${sale.total_amount - sale.net_total}" readonly>
+                                </div>
+                                <div class="text-right font-bold">Net Total:</div>
+                                <div>
+                                    <input type="number" name="net_total" id="edit_net_total" class="w-full p-2 border rounded" 
+                                           step="0.01" value="${sale.net_total}" readonly>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="flex justify-end space-x-2 mt-4">
+                            <button type="button" class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600" onclick="closeModal()">
+                                Cancel
+                            </button>
+                            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                                Update Invoice
+                            </button>
+                        </div>
+                    </form>
+                `;
+                
+                openModal('Edit Invoice #' + sale.invoice_id, modalContent);
+                
+                // Setup event listeners
+                setupEditInvoiceFormListeners();
+            })
+            .catch(error => {
+                console.error('Error fetching sale details:', error);
+                alert('Could not load sale details. Please try again.');
+            });
+    }
+
+    function setupEditInvoiceFormListeners() {
+        // Setup existing items
+        document.querySelectorAll('.invoice-item').forEach(item => {
+            setupItemListeners(item);
+        });
+        
+        // Add item button
+        document.getElementById('add-edit-item').addEventListener('click', function() {
+            const itemsContainer = document.getElementById('edit-invoice-items');
+            const newItem = document.querySelector('.invoice-item').cloneNode(true);
+            
+            // Clear values in the cloned item
+            newItem.querySelectorAll('input').forEach(input => {
+                input.value = '';
+            });
+            newItem.querySelector('select').selectedIndex = 0;
+            
+            // Add remove button if it doesn't have one
+            if (!newItem.querySelector('.remove-item')) {
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'remove-item text-red-500 ml-2';
+                removeBtn.innerHTML = '<i class="fas fa-times"></i>';
+                removeBtn.addEventListener('click', function() {
+                    newItem.remove();
+                    calculateTotals();
+                });
+                
+                newItem.querySelector('.subtotal').parentNode.appendChild(removeBtn);
+            }
+            
+            // Add the new item to the container
+            itemsContainer.appendChild(newItem);
+            
+            // Setup event listeners for the new item
+            setupItemListeners(newItem);
+        });
+        
+        // Add remove item functionality to existing remove buttons
+        document.querySelectorAll('.remove-item').forEach(button => {
+            button.addEventListener('click', function() {
+                this.closest('.invoice-item').remove();
+                calculateTotals();
+            });
+        });
+        
+        // Discount change
+        document.getElementById('edit_discount_id').addEventListener('change', calculateTotals);
+        
+        // Recalculate totals initially
+        calculateTotals();
+    }
+
+    // Helper function to get product stock for a given product ID
+    function getProductStock(productId) {
+        const products = <?php echo json_encode($products); ?>;
+        const product = products.find(p => p.product_id == productId);
+        return product ? product.stock_available : 0;
+    }
+
+    // Confirm Delete Sale
+    function confirmDeleteSale(invoiceId, invoiceNum) {
+        if (confirm('Are you sure you want to delete Invoice #' + invoiceNum + '?')) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = ''; // Submit to the same page
+            
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+            actionInput.value = 'delete_sale';
+            
+            const invoiceIdInput = document.createElement('input');
+            invoiceIdInput.type = 'hidden';
+            invoiceIdInput.name = 'invoice_id';
+            invoiceIdInput.value = invoiceId;
+            
+            form.appendChild(actionInput);
+            form.appendChild(invoiceIdInput);
+            document.body.appendChild(form);
+            form.submit();
+        }
+    }
+
+    // Add these modal functions
+    function openModal(title, content) {
+        document.getElementById('modal-title').textContent = title;
+        document.getElementById('modal-content').innerHTML = content;
+        document.getElementById('modal').classList.remove('hidden');
+    }
+
+    function closeModal() {
+        document.getElementById('modal').classList.add('hidden');
+    }
+
+    // Close modal when clicking outside
+    document.getElementById('modal').addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeModal();
+        }
+    });
 </script>
 
 <?php
@@ -577,4 +1053,4 @@ $content = ob_get_clean();
 
 // Include the layout
 include 'layout.php';
-?> 
+?>

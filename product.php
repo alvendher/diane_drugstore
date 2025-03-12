@@ -1,7 +1,6 @@
 <?php
 global $pdo;
 require_once 'config.php';
-checkLogin();
 
 // Page specific variables
 $pageTitle = "Products";

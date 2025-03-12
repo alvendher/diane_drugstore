@@ -47,6 +47,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Diane's Pharmacy</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         * {
             margin: 0;
@@ -143,6 +144,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             position: relative;
         }
 
+        /* Added styles for input containers */
+        .input-container {
+            position: relative;
+            width: 100%;
+        }
+
         input[type="text"], 
         input[type="password"] {
             width: 100%;
@@ -152,6 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 15px;
             transition: all 0.3s ease;
             background: #f8f9fa;
+            padding-right: 40px; /* Added right padding for icon */
         }
 
         input[type="text"]:focus, 
@@ -159,6 +167,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             border-color: #5B287B;
             background: #fff;
             box-shadow: 0 0 0 3px rgba(91, 40, 123, 0.1);
+        }
+
+        /* Input icon styling - right side and light gray */
+        .input-icon {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #aaaaaa; /* Light gray color */
+            font-size: 16px;
+        }
+
+        /* Password toggle button */
+        .toggle-password {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #aaaaaa; /* Light gray color */
+            cursor: pointer;
+            background: none;
+            border: none;
+            font-size: 16px;
+        }
+
+        .toggle-password:hover {
+            color: #5B287B;
         }
 
         .forgot-password {
@@ -257,10 +292,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             <form action="" method="post">
                 <div class="form-group">
-                    <input type="text" name="username" placeholder="Enter your username" required>
+                    <div class="input-container">
+                        <input type="text" name="username" placeholder="Enter your username" required>
+                        <i class="input-icon fas fa-user"></i>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <input type="password" name="password" placeholder="Enter your password" required>
+                    <div class="input-container">
+                        <input type="password" name="password" id="password-field" placeholder="Enter your password" required>
+                        <button type="button" class="toggle-password">
+                            <i class="fas fa-lock-open" id="toggle-icon"></i>
+                        </button>
+                    </div>
                     <div class="forgot-password">
                         <a href="forgot_password.php">Forgot Password?</a>
                     </div>
@@ -273,5 +316,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <h2>Diane's Pharmacy</h2>
         </div>
     </div>
+
+    <!-- JavaScript for password toggle -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const togglePassword = document.querySelector('.toggle-password');
+            const passwordField = document.getElementById('password-field');
+            const toggleIcon = document.getElementById('toggle-icon');
+            
+            // Set initial state to locked
+            toggleIcon.classList.remove('fa-lock-open');
+            toggleIcon.classList.add('fa-lock');
+            
+            togglePassword.addEventListener('click', function() {
+                // Toggle password visibility
+                const type = passwordField.getAttribute('type') === 'password' ? 'text' : 'password';
+                passwordField.setAttribute('type', type);
+                
+                // Toggle icon
+                if (type === 'text') {
+                    toggleIcon.classList.remove('fa-lock');
+                    toggleIcon.classList.add('fa-lock-open');
+                } else {
+                    toggleIcon.classList.remove('fa-lock-open');
+                    toggleIcon.classList.add('fa-lock');
+                }
+            });
+        });
+    </script>
 </body>
-</html> 
+</html>

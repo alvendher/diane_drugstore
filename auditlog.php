@@ -13,6 +13,12 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
 $pageTitle = "Audit Log";
 $pageIcon = "fas fa-clipboard-list";
 
+// Initialize AuditLog with the existing PDO connection
+$auditLog = new AuditLog($pdo);
+
+// Get the current user's ID from session
+$current_user_id = getCurrentUserId();
+
 // Get audit log data
 try {
     $auditLogs = $pdo->query("
@@ -34,10 +40,40 @@ try {
 }
 
 // Log the page access
-logAction(getCurrentUserId(), 'Viewed Audit Log');
+logAction($current_user_id, 'Viewed Audit Log');
 
 // Start output buffering
 ob_start();
+
+// Example usage of audit log (move these to where the actual actions happen)
+/*
+// When user logs in
+$auditLog->logLogin($current_user_id);
+
+// When user logs out
+$auditLog->logLogout($current_user_id);
+
+// When adding a record
+$auditLog->logDatabaseChange($current_user_id, 'INSERT', 'table_name', $record_id, 'Added new record');
+
+// When updating a record
+$auditLog->logDatabaseChange($current_user_id, 'UPDATE', 'table_name', $record_id, 'Updated record details');
+
+// When deleting a record
+$auditLog->logDatabaseChange($current_user_id, 'DELETE', 'table_name', $record_id, 'Deleted record');
+*/
+
+// Get all logs
+$logs = $auditLog->getAuditLogs();
+
+// Get filtered logs
+$filters = [
+    'user_id' => 1,
+    'action' => 'UPDATE',
+    'date_from' => '2024-01-01',
+    'date_to' => '2024-12-31'
+];
+$filtered_logs = $auditLog->getAuditLogs($filters);
 ?>
 
 <!-- Success/Error Messages -->
@@ -53,7 +89,7 @@ ob_start();
         <h2 class="text-xl font-bold">System Audit Log</h2>
         <div class="flex">
             <input type="text" id="searchInput" placeholder="Search..." class="p-2 border rounded mr-2">
-            <button onclick="exportToCSV()" class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+            <button onclick="exportToCSV()" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-900">
                 <i class="fas fa-file-export mr-1"></i> Export
             </button>
         </div>
@@ -131,4 +167,87 @@ $content = ob_get_clean();
 
 // Include the layout
 include 'layout.php';
+?>
+
+<?php
+class AuditLog {
+    private $db;
+
+    public function __construct($database) {
+        $this->db = $database;
+    }
+
+    // Log user activities
+    public function logActivity($user_id, $action, $table_name = null, $record_id = null, $details = null) {
+        $timestamp = date('Y-m-d H:i:s');
+        $ip_address = $_SERVER['REMOTE_ADDR'];
+        
+        $sql = "INSERT INTO audit_logs (user_id, action, table_name, record_id, details, ip_address, timestamp) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)";
+        
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute([$user_id, $action, $table_name, $record_id, $details, $ip_address, $timestamp]);
+            return true;
+        } catch (PDOException $e) {
+            error_log("Audit Log Error: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    // Specific method for logging login events
+    public function logLogin($user_id) {
+        return $this->logActivity($user_id, 'LOGIN', null, null, 'User logged in');
+    }
+
+    // Specific method for logging logout events
+    public function logLogout($user_id) {
+        return $this->logActivity($user_id, 'LOGOUT', null, null, 'User logged out');
+    }
+
+    // Log database modifications
+    public function logDatabaseChange($user_id, $action, $table_name, $record_id, $details) {
+        return $this->logActivity($user_id, $action, $table_name, $record_id, $details);
+    }
+
+    // Get audit logs with optional filtering
+    public function getAuditLogs($filters = []) {
+        $sql = "SELECT al.*, u.username 
+                FROM audit_logs al 
+                LEFT JOIN users u ON al.user_id = u.id 
+                WHERE 1=1";
+        $params = [];
+
+        if (!empty($filters['user_id'])) {
+            $sql .= " AND al.user_id = ?";
+            $params[] = $filters['user_id'];
+        }
+
+        if (!empty($filters['action'])) {
+            $sql .= " AND al.action = ?";
+            $params[] = $filters['action'];
+        }
+
+        if (!empty($filters['date_from'])) {
+            $sql .= " AND al.timestamp >= ?";
+            $params[] = $filters['date_from'];
+        }
+
+        if (!empty($filters['date_to'])) {
+            $sql .= " AND al.timestamp <= ?";
+            $params[] = $filters['date_to'];
+        }
+
+        $sql .= " ORDER BY al.timestamp DESC";
+
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        } catch (PDOException $e) {
+            error_log("Audit Log Retrieval Error: " . $e->getMessage());
+            return [];
+        }
+    }
+}
 ?> 

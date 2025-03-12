@@ -8,7 +8,7 @@ ob_start();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Diane's Pharmacy - Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <style>
         .sidebar {
             background: linear-gradient(180deg, #186AB1 -100%, #3A1853 100%);
@@ -28,7 +28,7 @@ ob_start();
             display: flex;
             flex-direction: column;
             align-items: center;
-            margin-bottom: 2rem;
+            margin-bottom: 0.5rem;
         }
         .logo-img {
             width: 100px;
@@ -169,6 +169,8 @@ ob_start();
             <div class="logo-container p-4">
                 <img src="img/logo.png" alt="Diane's Pharmacy Logo" class="logo-img">
                 <div class="text-center text-xl font-bold">Diane's Pharmacy</div>
+                <div class="w-full h-0.5 bg-white mt-3 md:mt-4 lg:mt-5 hidden md:block"></div>
+                <div class="w-1/2 h-0.5 bg-white mt-2 mx-auto md:hidden"></div>
             </div>
             
             <!-- Navigation -->
@@ -186,6 +188,11 @@ ob_start();
                 <li class="mb-1">
                     <a href="product.php" class="nav-item flex items-center p-3 rounded-lg <?php echo basename($_SERVER['PHP_SELF']) == 'product.php' ? 'active-nav-item' : ''; ?>">
                         <i class="fas fa-pills mr-3 w-5 text-center"></i> Products
+                    </a>
+                </li>
+                <li class="mb-1">
+                    <a href="expired_product.php" class="nav-item flex items-center p-3 rounded-lg <?php echo basename($_SERVER['PHP_SELF']) == 'expired_product.php' ? 'active-nav-item' : ''; ?>">
+                        <i class="fas fa-prescription-bottle-alt mr-3 w-5 text-center"></i> Expired Products
                     </a>
                 </li>
                 <li class="mb-1">

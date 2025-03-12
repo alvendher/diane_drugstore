@@ -10,6 +10,17 @@ $pageIcon = "fas fa-boxes";
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'add_inventory') {
         try {
+            // Check if product already exists in inventory
+            $checkStmt = $pdo->prepare("
+                SELECT COUNT(*) FROM inventory 
+                WHERE product_id = ? AND status = 'active'
+            ");
+            $checkStmt->execute([$_POST['product_id']]);
+            $productExists = $checkStmt->fetchColumn() > 0;
+            
+            if ($productExists) {
+                $errorMessage = "This product already exists in inventory. Please edit the existing entry instead.";
+            } else {
             // Prepare the SQL statement
             $stmt = $pdo->prepare("
                 INSERT INTO inventory (inventory_id, product_id, stock_in, stock_out, expiry_date, stock_available, low_stock_threshold)
@@ -38,6 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             // Set success message
             $successMessage = "Inventory added successfully!";
+            }
         } catch(PDOException $e) {
             $errorMessage = "Error adding inventory: " . $e->getMessage();
         }
@@ -45,6 +57,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 if ($_POST['action'] === 'edit_inventory') {
         try {
+            // Get current product ID for this inventory
+            $currentProductStmt = $pdo->prepare("
+                SELECT product_id FROM inventory WHERE inventory_id = ?
+            ");
+            $currentProductStmt->execute([$_POST['inventory_id']]);
+            $currentProductId = $currentProductStmt->fetchColumn();
+            
+            // If product is being changed, check if the new product already exists
+            if ($currentProductId != $_POST['product_id']) {
+                $checkStmt = $pdo->prepare("
+                    SELECT COUNT(*) FROM inventory 
+                    WHERE product_id = ? AND status = 'active'
+                ");
+                $checkStmt->execute([$_POST['product_id']]);
+                $productExists = $checkStmt->fetchColumn() > 0;
+                
+                if ($productExists) {
+                    $errorMessage = "This product already exists in inventory. Please edit the existing entry instead.";
+                    // Exit early without updating
+                    throw new Exception("Duplicate product");
+                }
+            }
+            
+            // If we get here, it's safe to update
             // Prepare and execute the update
             $stmt = $pdo->prepare("
                 UPDATE inventory
@@ -69,10 +105,13 @@ if ($_POST['action'] === 'edit_inventory') {
 
             // Success message
             $successMessage = "Inventory updated successfully!";
-        } catch(PDOException $e) {
+        } catch(Exception $e) {
+            if ($e->getMessage() != "Duplicate product") {
             $errorMessage = "Error updating inventory: " . $e->getMessage();
+            }
         }
     }
+    
 if ($_POST['action'] === 'delete_inventory' && isset($_POST['inventory_id'])) {
     try {
         // Prepare the SQL statement for deleting the inventory
@@ -94,7 +133,69 @@ if ($_POST['action'] === 'delete_inventory' && isset($_POST['inventory_id'])) {
     }
 }
 
+if ($_POST['action'] === 'quarantine_expired') {
+    try {
+        // Update inventory status to quarantined
+        $stmt = $pdo->prepare("
+            UPDATE inventory
+            SET status = 'quarantined'
+            WHERE product_id = ? AND expiry_date < CURDATE() AND stock_available > 0
+        ");
+        
+        $stmt->execute([$_POST['product_id']]);
+        
+        // Get product name for the log
+        $productName = $pdo->query("SELECT product_name FROM product WHERE product_id = " . $_POST['product_id'])->fetchColumn();
+        
+        // Log the action
+        logAction(getCurrentUserId(), 'Quarantined expired product: ' . $productName);
+        
+        // Set success message
+        $successMessage = "Expired product quarantined successfully!";
+    } catch(PDOException $e) {
+        $errorMessage = "Error quarantining product: " . $e->getMessage();
+    }
 }
+}
+
+// Handle GET requests for quarantine action
+if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']) && $_GET['action'] === 'quarantine' && isset($_GET['id'])) {
+    $productId = $_GET['id'];
+    
+    try {
+        // Get product details
+        $stmt = $pdo->prepare("
+            SELECT p.product_name, MIN(i.expiry_date) as earliest_expiry
+            FROM product p
+            JOIN inventory i ON p.product_id = i.product_id
+            WHERE p.product_id = ? AND i.status = 'active'
+            GROUP BY p.product_id, p.product_name
+        ");
+        
+        $stmt->execute([$productId]);
+        $product = $stmt->fetch();
+        
+        if ($product) {
+            // Check if product is actually expired
+            $expiryDate = new DateTime($product['earliest_expiry']);
+            $today = new DateTime();
+            
+            if ($expiryDate < $today) {
+                // Show quarantine confirmation form
+                $quarantineForm = true;
+                $quarantineProduct = $product;
+                $quarantineProductId = $productId;
+            } else {
+                $errorMessage = "This product is not expired yet. Earliest expiry date is " . $expiryDate->format('m/d/Y');
+            }
+        } else {
+            $errorMessage = "Product not found or has no active inventory.";
+        }
+    } catch(PDOException $e) {
+        $errorMessage = "Database error: " . $e->getMessage();
+    }
+}
+
 try {
     // Get the highest inventory_id
     $lastInventoryId = $pdo->query("
@@ -120,6 +221,13 @@ try {
     // Get products for dropdown
     $products = $pdo->query("SELECT product_id, product_name FROM product ORDER BY product_name")->fetchAll();
     
+    // Get list of products already in inventory for client-side validation
+    $existingProducts = $pdo->query("
+        SELECT DISTINCT product_id 
+        FROM inventory 
+        WHERE status = 'active'
+    ")->fetchAll(PDO::FETCH_COLUMN);
+    
 } catch(PDOException $e) {
     $errorMessage = "Database error: " . $e->getMessage();
 }
@@ -142,6 +250,43 @@ ob_start();
     <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
         <?php echo $errorMessage; ?>
     </div>
+<?php endif; ?>
+
+<?php if (isset($quarantineForm) && $quarantineForm): ?>
+<div class="bg-red-50 border border-red-400 text-red-700 px-6 py-4 rounded-lg mb-6">
+    <div class="flex items-center mb-4">
+        <div class="text-red-500 mr-3">
+            <i class="fas fa-exclamation-triangle text-2xl"></i>
+        </div>
+        <div>
+            <h3 class="text-lg font-bold">Quarantine Expired Product</h3>
+            <p>You are about to quarantine all expired inventory for the following product:</p>
+        </div>
+    </div>
+    
+    <div class="bg-white p-4 rounded-lg mb-4">
+        <p><strong>Product:</strong> <?php echo htmlspecialchars($quarantineProduct['product_name']); ?></p>
+        <p><strong>Earliest Expiry Date:</strong> <?php echo date('m/d/Y', strtotime($quarantineProduct['earliest_expiry'])); ?></p>
+        <p class="text-red-600 font-bold mt-2">
+            <i class="fas fa-exclamation-circle"></i> 
+            This product is expired and should be removed from active inventory.
+        </p>
+    </div>
+    
+    <form action="inventory.php" method="POST" class="mt-4">
+        <input type="hidden" name="action" value="quarantine_expired">
+        <input type="hidden" name="product_id" value="<?php echo $quarantineProductId; ?>">
+        
+        <div class="flex justify-end space-x-3">
+            <a href="inventory.php" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">
+                Cancel
+            </a>
+            <button type="submit" class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                <i class="fas fa-exclamation-triangle mr-1"></i> Quarantine Expired Product
+            </button>
+        </div>
+    </form>
+</div>
 <?php endif; ?>
 
 <!-- Page Header with Add Button -->
@@ -179,10 +324,27 @@ ob_start();
         <tbody class="bg-white divide-y divide-gray-200">
             <?php foreach ($inventory as $item): ?>
                 <?php 
-                    $isLowStock = $item['stock_available'] <= $item['low_stock_threshold'];
+                    $isLowStock = $item['stock_available'] <= $item['low_stock_threshold'] && $item['stock_available'] > 0;
+                    $isOutOfStock = $item['stock_available'] <= 0;
                     $isExpired = strtotime($item['expiry_date']) < time();
-                    $statusClass = $isExpired ? 'bg-red-100 text-red-800' : ($isLowStock ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800');
-                    $statusText = $isExpired ? 'Expired' : ($isLowStock ? 'Low Stock' : 'Good');
+                    
+                    // Determine status class and text
+                    if ($isExpired) {
+                        $statusClass = 'bg-red-100 text-red-800';
+                        $statusText = 'Expired';
+                    } elseif ($isOutOfStock) {
+                        $statusClass = 'bg-red-500 text-white';
+                        $statusText = 'Out of Stock';
+                    } elseif ($isLowStock) {
+                        $statusClass = 'bg-yellow-100 text-yellow-800';
+                        $statusText = 'Low Stock';
+                    } else {
+                        $statusClass = 'bg-green-100 text-green-800';
+                        $statusText = 'Good';
+                    }
+                    
+                    // Add special class for negative or zero stock
+                    $stockClass = $item['stock_available'] <= 0 ? 'text-red-600 font-bold' : 'text-gray-500';
                 ?>
                 <tr class="hover:bg-gray-50">
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo $item['inventory_id']; ?></td>
@@ -191,7 +353,14 @@ ob_start();
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo $item['stock_in']; ?></td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo $item['stock_out']; ?></td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo $item['stock_available']; ?></td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm <?php echo $stockClass; ?>">
+                        <?php echo $item['stock_available']; ?>
+                        <?php if ($item['stock_available'] < 0): ?>
+                            <i class="fas fa-exclamation-triangle text-red-500 ml-1" title="Negative stock detected"></i>
+                        <?php elseif ($item['stock_available'] == 0): ?>
+                            <i class="fas fa-ban text-red-500 ml-1" title="Out of stock"></i>
+                        <?php endif; ?>
+                    </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo $item['low_stock_threshold']; ?></td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500"><?php echo date('m/d/Y', strtotime($item['expiry_date'])); ?></td>
                     <td class="px-6 py-4 whitespace-nowrap">
@@ -221,11 +390,13 @@ ob_start();
 
 <script>
     const nextInventoryId = <?php echo $nextInventoryId; ?>;
+    // Create a list of existing product IDs for client-side validation
+    const existingProducts = <?php echo json_encode($existingProducts); ?>;
 
     // Show Add Inventory Modal
     function showAddInventoryModal() {
         const modalContent = `
-            <form action="inventory.php" method="post" class="space-y-4">
+            <form action="inventory.php" method="post" class="space-y-4" onsubmit="return validateInventoryForm(this)">
                 <input type="hidden" name="action" value="add_inventory">
 
                 <!-- Inventory ID (Read-Only) -->
@@ -236,51 +407,71 @@ ob_start();
 
                 <div class="form-group">
                     <label for="product_id" class="form-label">Product</label>
-                    <select id="product_id" name="product_id" class="form-select" required>
+                    <select id="product_id" name="product_id" class="form-select" required onchange="checkDuplicateProduct(this.value)">
                         <option value="">Select Product</option>
                         <?php foreach ($products as $product): ?>
                             <option value="<?php echo $product['product_id']; ?>"><?php echo $product['product_name']; ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <div id="duplicate_product_warning" class="text-red-600 text-sm mt-1 hidden">
+                        Warning: This product already exists in inventory. Please edit the existing entry instead.
+                    </div>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="form-group">
                         <label for="stock_in" class="form-label">Stock In</label>
-                        <input type="number" id="stock_in" name="stock_in" class="form-input" min="0" required>
+                        <input type="number" id="stock_in" name="stock_in" class="form-input" min="0" required onchange="updateAvailableStock()" oninput="validatePositiveNumber(this)">
                     </div>
                     
                     <div class="form-group">
                         <label for="stock_out" class="form-label">Stock Out</label>
-                        <input type="number" id="stock_out" name="stock_out" class="form-input" min="0" value="0" required>
+                        <input type="number" id="stock_out" name="stock_out" class="form-input" min="0" value="0" required onchange="updateAvailableStock()" oninput="validatePositiveNumber(this)">
                     </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Available Stock (calculated)</label>
+                    <div id="available_stock_display" class="form-input bg-gray-100">0</div>
+                    <div id="stock_warning" class="text-red-600 text-sm mt-1 hidden">Warning: Stock Out cannot exceed Stock In</div>
+                    <div id="stock_status_display" class="text-sm mt-1 text-gray-500">Enter threshold to see status</div>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="form-group">
                         <label for="expiry_date" class="form-label">Expiry Date</label>
-                        <input type="date" id="expiry_date" name="expiry_date" class="form-input" required>
+                        <input type="date" id="expiry_date" name="expiry_date" class="form-input" required min="${new Date().toISOString().split('T')[0]}">
                     </div>
                     
                     <div class="form-group">
                         <label for="low_stock_threshold" class="form-label">Low Stock Threshold</label>
-                        <input type="number" id="low_stock_threshold" name="low_stock_threshold" class="form-input" min="1" required>
+                        <input type="number" id="low_stock_threshold" name="low_stock_threshold" class="form-input" min="1" required oninput="validatePositiveNumber(this); updateAvailableStock();">
                     </div>
                 </div>
                 
                 <div class="flex justify-end space-x-2">
                     <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">Add Inventory</button>
+                    <button type="submit" id="submit_button" class="btn-primary">Add Inventory</button>
                 </div>
             </form>
         `;
         
         openModal('Add New Inventory', modalContent);
+        
+        // Initialize the stock_out field with an empty value
+        setTimeout(() => {
+            const stockOutField = document.getElementById('stock_out');
+            if (stockOutField) {
+                stockOutField.value = '';
+            }
+        }, 100);
     }
+
 // Show Edit Inventory Modal
 function showEditInventoryModal(inventoryId) {
         // Fetch inventory data from the PHP variable
         const inventory = <?php echo json_encode($inventory); ?>;
+        const products = <?php echo json_encode($products); ?>;
         const item = inventory.find(i => i.inventory_id == inventoryId);
 
         if (!item) {
@@ -288,61 +479,284 @@ function showEditInventoryModal(inventoryId) {
             return;
         }
 
+        // Format the expiry date for the date input (YYYY-MM-DD)
+        const expiryDate = new Date(item.expiry_date);
+        const formattedExpiryDate = expiryDate.toISOString().split('T')[0];
+        
+        // Generate product options with the correct one selected
+        let productOptions = '<option value="">Select Product</option>';
+        products.forEach(product => {
+            const selected = parseInt(product.product_id) === parseInt(item.product_id) ? 'selected' : '';
+            productOptions += `<option value="${product.product_id}" ${selected}>${product.product_name}</option>`;
+        });
+
+        // Calculate stock percentage
+        const stockPercentage = item.low_stock_threshold > 0 ? 
+            ((item.stock_available / item.low_stock_threshold) * 100).toFixed(1) : 0;
+        
+        // Get status class based on percentage
+        let statusClass = '';
+        if (item.stock_available <= 0) {
+            statusClass = 'text-red-600 font-bold';
+        } else if (stockPercentage <= 10) {
+            statusClass = 'text-red-600';
+        } else if (stockPercentage <= 25) {
+            statusClass = 'text-orange-600';
+        } else if (stockPercentage <= 50) {
+            statusClass = 'text-yellow-600';
+        } else {
+            statusClass = 'text-green-600';
+        }
+
         // Dynamically populate the modal fields
         const modalContent = `
-            <form action="inventory.php" method="POST" class="space-y-4">
+            <form action="inventory.php" method="POST" class="space-y-4" onsubmit="return validateInventoryForm(this)">
                 <input type="hidden" name="action" value="edit_inventory">
                 <input type="hidden" name="inventory_id" value="${item.inventory_id}">
+                <input type="hidden" id="original_product_id" value="${item.product_id}">
 
                 <div class="form-group">
                     <label for="edit_product_id" class="form-label">Product</label>
-                    <select id="edit_product_id" name="product_id" class="form-select" required>
-                        <option value="">Select Product</option>
-                        <?php foreach ($products as $product): ?>
-
-                            <option value="<?php echo $product['product_id']; ?>" <?php echo isset($item['product_id']) && $item['product_id'] == $product['product_id'] ? "selected" : ""; ?>>
-                                <?php echo $product['product_name']; ?>
-                            </option>
-
-                        <?php endforeach; ?>
+                    <select id="edit_product_id" name="product_id" class="form-select" required onchange="checkDuplicateProductEdit(this.value)">
+                        ${productOptions}
                     </select>
+                    <div id="edit_duplicate_product_warning" class="text-red-600 text-sm mt-1 hidden">
+                        Warning: This product already exists in inventory. Please edit the existing entry instead.
+                    </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="form-group">
                         <label for="edit_stock_in" class="form-label">Stock In</label>
-                        <input type="number" id="edit_stock_in" name="stock_in" class="form-input" min="0" value="${item.stock_in}" required>
+                        <input type="number" id="edit_stock_in" name="stock_in" class="form-input" min="0" value="${item.stock_in}" required onchange="updateEditAvailableStock()">
                     </div>
 
                     <div class="form-group">
                         <label for="edit_stock_out" class="form-label">Stock Out</label>
-                        <input type="number" id="edit_stock_out" name="stock_out" class="form-input" min="0" value="${item.stock_out}" required>
+                        <input type="number" id="edit_stock_out" name="stock_out" class="form-input" min="0" value="${item.stock_out}" required onchange="updateEditAvailableStock()">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Available Stock (calculated)</label>
+                    <div id="edit_available_stock_display" class="form-input bg-gray-100">${item.stock_available}</div>
+                    <div id="edit_stock_status_display" class="text-sm mt-1 ${statusClass}">
+                        ${stockPercentage}% of threshold
                     </div>
                 </div>
 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="form-group">
                         <label for="edit_expiry_date" class="form-label">Expiry Date</label>
-                        <input type="date" id="edit_expiry_date" name="expiry_date" class="form-input" value="${item.expiry_date}" required>
+                        <input type="date" id="edit_expiry_date" name="expiry_date" class="form-input" value="${formattedExpiryDate}" required>
                     </div>
 
                     <div class="form-group">
                         <label for="edit_low_stock_threshold" class="form-label">Low Stock Threshold</label>
-                        <input type="number" id="edit_low_stock_threshold" name="low_stock_threshold" class="form-input" min="1" value="${item.low_stock_threshold}" required>
+                        <input type="number" id="edit_low_stock_threshold" name="low_stock_threshold" class="form-input" min="1" value="${item.low_stock_threshold}" required onchange="updateEditAvailableStock()">
                     </div>
                 </div>
 
                 <div class="flex justify-end space-x-2">
                     <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button type="submit" class="btn-primary">Save Changes</button>
+                    <button type="submit" id="edit_submit_button" class="btn-primary">Save Changes</button>
                 </div>
             </form>`;
 
         // Open the modal with the dynamically generated content
         openModal('Edit Inventory', modalContent);
 }
-function hideEditInventoryModal() {
-    document.getElementById('editInventoryModal').classList.add('hidden');
+
+    // Validate positive numbers only
+    function validatePositiveNumber(input) {
+        // Remove any negative sign
+        if (input.value.startsWith('-')) {
+            input.value = input.value.substring(1);
+        }
+        
+        // Ensure the value is a number and not less than 0
+        const value = parseFloat(input.value);
+        if (isNaN(value) || value < 0) {
+            input.value = 0;
+        }
+    }
+
+    // Update available stock calculation for add form
+    function updateAvailableStock() {
+        const stockIn = parseInt(document.getElementById('stock_in').value) || 0;
+        const stockOut = parseInt(document.getElementById('stock_out').value) || 0;
+        const availableStock = stockIn - stockOut;
+        const threshold = parseInt(document.getElementById('low_stock_threshold').value) || 0;
+        
+        const display = document.getElementById('available_stock_display');
+        const warning = document.getElementById('stock_warning');
+        const submitButton = document.getElementById('submit_button');
+        const statusDisplay = document.getElementById('stock_status_display');
+        
+        // Update the available stock display
+        display.textContent = availableStock;
+        
+        // Show warning and disable submit button if stock out > stock in
+        if (availableStock < 0) {
+            display.classList.add('text-red-600', 'font-bold');
+            warning.classList.remove('hidden');
+            submitButton.disabled = true;
+            submitButton.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            display.classList.remove('text-red-600', 'font-bold');
+            warning.classList.add('hidden');
+            submitButton.disabled = false;
+            submitButton.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+        
+        // Calculate and display percentage if threshold is set
+        if (threshold > 0 && availableStock >= 0) {
+            const percentage = updateStockStatus(availableStock, threshold, null, statusDisplay);
+            
+            // Update the status display
+            if (statusDisplay) {
+                const percentText = percentage.toFixed(1) + '% of threshold';
+                statusDisplay.textContent = percentText;
+                
+                // Apply color coding
+                statusDisplay.className = 'text-sm mt-1'; // Reset classes
+                if (percentage <= 0) {
+                    statusDisplay.classList.add('text-red-600', 'font-bold');
+                } else if (percentage <= 10) {
+                    statusDisplay.classList.add('text-red-600');
+                } else if (percentage <= 25) {
+                    statusDisplay.classList.add('text-orange-600');
+                } else if (percentage <= 50) {
+                    statusDisplay.classList.add('text-yellow-600');
+                } else {
+                    statusDisplay.classList.add('text-green-600');
+                }
+            }
+        }
+    }
+
+    // Update available stock calculation for edit form
+    function updateEditAvailableStock() {
+        const stockIn = parseInt(document.getElementById('edit_stock_in').value) || 0;
+        const stockOut = parseInt(document.getElementById('edit_stock_out').value) || 0;
+        const availableStock = stockIn - stockOut;
+        const threshold = parseInt(document.getElementById('edit_low_stock_threshold').value) || 0;
+        
+        const display = document.getElementById('edit_available_stock_display');
+        const statusDisplay = document.getElementById('edit_stock_status_display');
+        
+        // Update the available stock display
+        display.textContent = availableStock;
+        
+        // Highlight negative values
+        if (availableStock < 0) {
+            display.classList.add('text-red-600', 'font-bold');
+        } else if (availableStock === 0) {
+            display.classList.add('text-red-600');
+            display.classList.remove('font-bold');
+        } else {
+            display.classList.remove('text-red-600', 'font-bold');
+        }
+        
+        // Calculate and display percentage if threshold is set
+        if (threshold > 0 && availableStock >= 0) {
+            const percentage = updateStockStatus(availableStock, threshold, null, statusDisplay);
+            
+            // Update the status display
+            if (statusDisplay) {
+                const percentText = percentage.toFixed(1) + '% of threshold';
+                statusDisplay.textContent = percentText;
+                
+                // Apply color coding
+                statusDisplay.className = 'text-sm mt-1'; // Reset classes
+                if (percentage <= 0) {
+                    statusDisplay.classList.add('text-red-600', 'font-bold');
+                } else if (percentage <= 10) {
+                    statusDisplay.classList.add('text-red-600');
+                } else if (percentage <= 25) {
+                    statusDisplay.classList.add('text-orange-600');
+                } else if (percentage <= 50) {
+                    statusDisplay.classList.add('text-yellow-600');
+                } else {
+                    statusDisplay.classList.add('text-green-600');
+                }
+            }
+        }
+    }
+
+    // Check for duplicate product when adding
+    function checkDuplicateProduct(productId) {
+        const warning = document.getElementById('duplicate_product_warning');
+        const submitButton = document.getElementById('submit_button');
+        
+        if (existingProducts.includes(parseInt(productId))) {
+            warning.classList.remove('hidden');
+            submitButton.disabled = true;
+            submitButton.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            warning.classList.add('hidden');
+            submitButton.disabled = false;
+            submitButton.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+    
+    // Check for duplicate product when editing
+    function checkDuplicateProductEdit(productId) {
+        const warning = document.getElementById('edit_duplicate_product_warning');
+        const submitButton = document.getElementById('edit_submit_button');
+        const originalProductId = document.getElementById('original_product_id').value;
+        
+        // Only check for duplicates if the product is being changed
+        if (productId != originalProductId && existingProducts.includes(parseInt(productId))) {
+            warning.classList.remove('hidden');
+            submitButton.disabled = true;
+            submitButton.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+            warning.classList.add('hidden');
+            submitButton.disabled = false;
+            submitButton.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
+    }
+
+    // Validate inventory form before submission
+    function validateInventoryForm(form) {
+        const stockIn = parseInt(form.querySelector('[name="stock_in"]').value) || 0;
+        const stockOut = parseInt(form.querySelector('[name="stock_out"]').value) || 0;
+        const availableStock = stockIn - stockOut;
+        
+        if (availableStock < 0) {
+            alert('Error: Stock Out cannot be greater than Stock In. This would result in negative inventory.');
+            return false;
+        }
+        
+        const expiryDate = new Date(form.querySelector('[name="expiry_date"]').value);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        if (expiryDate < today) {
+            if (!confirm('Warning: The expiry date is in the past. Are you sure you want to continue?')) {
+                return false;
+            }
+        }
+        
+        // Check for duplicate product
+        const productId = parseInt(form.querySelector('[name="product_id"]').value);
+        const action = form.querySelector('[name="action"]').value;
+        
+        if (action === 'add_inventory' && existingProducts.includes(productId)) {
+            alert('This product already exists in inventory. Please edit the existing entry instead.');
+            return false;
+        }
+        
+        if (action === 'edit_inventory') {
+            const originalProductId = parseInt(document.getElementById('original_product_id').value);
+            if (productId !== originalProductId && existingProducts.includes(productId)) {
+                alert('This product already exists in inventory. Please edit the existing entry instead.');
+                return false;
+            }
+        }
+        
+        return true;
 }
     
     // Confirm Delete Inventory
